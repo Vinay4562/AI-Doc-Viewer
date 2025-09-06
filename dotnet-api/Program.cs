@@ -1,11 +1,6 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.EntityFrameworkCore;
 using System.Text.Json.Serialization;
-using DotnetApi.Models;
-using Amazon.S3;
-using Amazon.S3.Model;
-using Npgsql;
 
 // FORCE REDEPLOY - SIMPLIFIED VERSION v3 - NO DATABASE
 
@@ -41,35 +36,11 @@ builder.Services.AddCors(options =>
               .AllowAnyMethod();
     });
 });
-builder.Services.AddHttpClient("py", c => c.BaseAddress = new Uri(builder.Configuration["PY_BASE"] ?? "http://py-processor:8000"));
+// HTTP client removed for simplified approach
 
-// Add MinIO service (using AWS S3 SDK for MinIO compatibility)
-builder.Services.AddSingleton<IAmazonS3>(provider =>
-{
-    var minioEndpoint = builder.Configuration["MINIO_ENDPOINT"] ?? "https://document-assistant-storage.onrender.com";
-    
-    // Handle both Docker service names and full URLs
-    if (!minioEndpoint.StartsWith("http"))
-    {
-        minioEndpoint = $"http://{minioEndpoint}";
-    }
-    
-    var config = new AmazonS3Config
-    {
-        ServiceURL = minioEndpoint,
-        ForcePathStyle = true,
-        UseHttp = minioEndpoint.StartsWith("http://")
-    };
-    
-    return new AmazonS3Client(
-        builder.Configuration["MINIO_ACCESS_KEY"] ?? "minioadmin",
-        builder.Configuration["MINIO_SECRET_KEY"] ?? "minioadmin",
-        config);
-});
+// MinIO service removed for simplified approach
 
-// Database temporarily disabled for simplified approach
-// builder.Services.AddDbContext<AppDbContext>(options =>
-//     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
+// Database completely removed for simplified approach
 
 var app = builder.Build();
 
@@ -192,187 +163,12 @@ app.MapPost("/test-upload", async (HttpRequest req) =>
     }
 });
 
-// Debug endpoint to check service connections
-app.MapGet("/debug", async (AppDbContext db, IAmazonS3 s3Client, IHttpClientFactory http, ILogger<Program> logger, IConfiguration config) =>
-{
-    var results = new Dictionary<string, object>();
-    
-    // Add configuration debugging
-    results["config"] = new {
-        connectionString = config.GetConnectionString("DefaultConnection")?.Substring(0, 50) + "...",
-        minioEndpoint = config["MINIO_ENDPOINT"],
-        pyBase = config["PY_BASE"]
-    };
-    
-    try
-    {
-        // Test database connection
-        var dbTest = await db.Database.CanConnectAsync();
-        results["database"] = new { status = "ok", connected = dbTest };
-        
-        // Try to execute a simple query
-        if (dbTest)
-        {
-            var tableExists = await db.Database.ExecuteSqlRawAsync("SELECT 1 FROM documents LIMIT 1");
-            results["database_tables"] = new { status = "ok", tables_exist = true };
-        }
-    }
-    catch (Exception ex)
-    {
-        results["database"] = new { status = "error", message = ex.Message };
-    }
-    
-    try
-    {
-        // Test MinIO connection
-        var buckets = await s3Client.ListBucketsAsync();
-        results["minio"] = new { status = "ok", buckets = buckets.Buckets.Count };
-    }
-    catch (Exception ex)
-    {
-        results["minio"] = new { status = "error", message = ex.Message };
-    }
-    
-    try
-    {
-        // Test Python service connection
-        var client = http.CreateClient("py");
-        var response = await client.GetAsync("/health");
-        results["python_service"] = new { status = "ok", httpStatus = response.StatusCode };
-    }
-    catch (Exception ex)
-    {
-        results["python_service"] = new { status = "error", message = ex.Message };
-    }
-    
-    return Results.Ok(results);
-});
+// Debug endpoint simplified
+app.MapGet("/debug", () => Results.Ok(new { 
+    message = "Simplified API - No database or external services", 
+    timestamp = DateTime.UtcNow 
+}));
 
-// Initialize database tables
-app.MapPost("/init-db", async (AppDbContext db, ILogger<Program> logger) =>
-{
-    try
-    {
-        logger.LogInformation("Initializing database tables...");
-        
-        // Create tables using raw SQL
-        await db.Database.ExecuteSqlRawAsync(@"
-            CREATE EXTENSION IF NOT EXISTS vector;
-            
-            CREATE TABLE IF NOT EXISTS documents(
-              id bigserial PRIMARY KEY,
-              title text,
-              file_url text,
-              status text,
-              created_at timestamptz DEFAULT now()
-            );
-            
-            CREATE TABLE IF NOT EXISTS document_pages(
-              id bigserial PRIMARY KEY,
-              document_id bigint REFERENCES documents(id) ON DELETE CASCADE,
-              page_no int,
-              text text
-            );
-            
-            CREATE TABLE IF NOT EXISTS chunks(
-              id bigserial PRIMARY KEY,
-              document_id bigint REFERENCES documents(id) ON DELETE CASCADE,
-              page_no int,
-              text text,
-              embedding vector(384)
-            );
-        ");
-        
-        logger.LogInformation("Database tables initialized successfully");
-        return Results.Ok(new { message = "Database initialized successfully" });
-    }
-    catch (Exception ex)
-    {
-        logger.LogError(ex, "Failed to initialize database");
-        return Results.Problem(detail: ex.Message, statusCode: 500);
-    }
-});
-
-// Test raw database connection
-app.MapGet("/test-db", async (IConfiguration config, ILogger<Program> logger) =>
-{
-    try
-    {
-        var connectionString = config.GetConnectionString("DefaultConnection");
-        logger.LogInformation($"Testing connection string: {connectionString?.Substring(0, 50)}...");
-        
-        using var connection = new NpgsqlConnection(connectionString);
-        await connection.OpenAsync();
-        
-        var command = new NpgsqlCommand("SELECT version()", connection);
-        var version = await command.ExecuteScalarAsync();
-        
-        await connection.CloseAsync();
-        
-        return Results.Ok(new { 
-            status = "success", 
-            message = "Database connection successful",
-            version = version?.ToString()
-        });
-    }
-    catch (Exception ex)
-    {
-        logger.LogError(ex, "Raw database connection failed");
-        return Results.Problem(detail: ex.Message, statusCode: 500);
-    }
-});
-
-// Initialize database using raw connection
-app.MapPost("/init-db-raw", async (IConfiguration config, ILogger<Program> logger) =>
-{
-    try
-    {
-        var connectionString = config.GetConnectionString("DefaultConnection");
-        logger.LogInformation("Initializing database tables using raw connection...");
-        
-        using var connection = new NpgsqlConnection(connectionString);
-        await connection.OpenAsync();
-        
-        var initSql = @"
-            CREATE EXTENSION IF NOT EXISTS vector;
-            
-            CREATE TABLE IF NOT EXISTS documents(
-              id bigserial PRIMARY KEY,
-              title text,
-              file_url text,
-              status text,
-              created_at timestamptz DEFAULT now()
-            );
-            
-            CREATE TABLE IF NOT EXISTS document_pages(
-              id bigserial PRIMARY KEY,
-              document_id bigint REFERENCES documents(id) ON DELETE CASCADE,
-              page_no int,
-              text text
-            );
-            
-            CREATE TABLE IF NOT EXISTS chunks(
-              id bigserial PRIMARY KEY,
-              document_id bigint REFERENCES documents(id) ON DELETE CASCADE,
-              page_no int,
-              text text,
-              embedding vector(384)
-            );
-        ";
-        
-        var command = new NpgsqlCommand(initSql, connection);
-        await command.ExecuteNonQueryAsync();
-        
-        await connection.CloseAsync();
-        
-        logger.LogInformation("Database tables initialized successfully using raw connection");
-        return Results.Ok(new { message = "Database initialized successfully using raw connection" });
-    }
-    catch (Exception ex)
-    {
-        logger.LogError(ex, "Failed to initialize database using raw connection");
-        return Results.Problem(detail: ex.Message, statusCode: 500);
-    }
-});
+// Database endpoints removed for simplified approach
 
 app.Run();
