@@ -79,7 +79,7 @@ function App(){
     const timestamp = new Date().toISOString();
     
     try {
-      const res = await axios.post(`${process.env.REACT_APP_PROCESSOR_URL || 'https://document-assistant-py-processor.onrender.com'}/qa`, { 
+      const res = await axios.post(`${process.env.REACT_APP_PROCESSOR_URL || 'https://ai-doc-viewer-processor.onrender.com'}/qa`, { 
         query: currentQuery, 
         documentId: currentDocId || null, 
         top_k: 5 

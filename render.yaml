@@ -49,7 +49,7 @@ services:
       - key: MINIO_SECRET_KEY
         value: minioadmin
       - key: PY_BASE
-        value: https://document-assistant-py-processor.onrender.com
+        value: https://ai-doc-viewer-processor.onrender.com
 
   # Python Processor Service
   - type: web
@@ -84,4 +84,4 @@ services:
       - key: REACT_APP_API_URL
         value: https://ai-doc-viewer-api.onrender.com
       - key: REACT_APP_PROCESSOR_URL
-        value: https://document-assistant-py-processor.onrender.com
+        value: https://ai-doc-viewer-processor.onrender.com
