@@ -33,7 +33,7 @@ services:
 
   # .NET API Service
   - type: web
-    name: ai-doc-viewer-api-v2
+    name: ai-doc-viewer-api
     env: docker
     dockerfilePath: ./dotnet-api/Dockerfile
     plan: starter
@@ -49,7 +49,7 @@ services:
       - key: MINIO_SECRET_KEY
         value: minioadmin
       - key: PY_BASE
-        value: https://ai-doc-viewer-processor.onrender.com
+        value: https://document-assistant-py-processor.onrender.com
 
   # Python Processor Service
   - type: web
@@ -82,4 +82,6 @@ services:
     staticPublishPath: ./frontend/dist
     envVars:
       - key: REACT_APP_API_URL
-        value: https://ai-doc-viewer-api-v2.onrender.com
+        value: https://ai-doc-viewer-api.onrender.com
+      - key: REACT_APP_PROCESSOR_URL
+        value: https://document-assistant-py-processor.onrender.com
