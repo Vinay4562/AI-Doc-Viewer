@@ -5,6 +5,7 @@ using System.Text.Json.Serialization;
 using DotnetApi.Models;
 using Amazon.S3;
 using Amazon.S3.Model;
+using Npgsql;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -214,15 +215,29 @@ app.MapPost("/test-upload", async (HttpRequest req) =>
 });
 
 // Debug endpoint to check service connections
-app.MapGet("/debug", async (AppDbContext db, IAmazonS3 s3Client, IHttpClientFactory http, ILogger<Program> logger) =>
+app.MapGet("/debug", async (AppDbContext db, IAmazonS3 s3Client, IHttpClientFactory http, ILogger<Program> logger, IConfiguration config) =>
 {
     var results = new Dictionary<string, object>();
+    
+    // Add configuration debugging
+    results["config"] = new {
+        connectionString = config.GetConnectionString("DefaultConnection")?.Substring(0, 50) + "...",
+        minioEndpoint = config["MINIO_ENDPOINT"],
+        pyBase = config["PY_BASE"]
+    };
     
     try
     {
         // Test database connection
         var dbTest = await db.Database.CanConnectAsync();
         results["database"] = new { status = "ok", connected = dbTest };
+        
+        // Try to execute a simple query
+        if (dbTest)
+        {
+            var tableExists = await db.Database.ExecuteSqlRawAsync("SELECT 1 FROM documents LIMIT 1");
+            results["database_tables"] = new { status = "ok", tables_exist = true };
+        }
     }
     catch (Exception ex)
     {
@@ -296,6 +311,35 @@ app.MapPost("/init-db", async (AppDbContext db, ILogger<Program> logger) =>
     catch (Exception ex)
     {
         logger.LogError(ex, "Failed to initialize database");
+        return Results.Problem(detail: ex.Message, statusCode: 500);
+    }
+});
+
+// Test raw database connection
+app.MapGet("/test-db", async (IConfiguration config, ILogger<Program> logger) =>
+{
+    try
+    {
+        var connectionString = config.GetConnectionString("DefaultConnection");
+        logger.LogInformation($"Testing connection string: {connectionString?.Substring(0, 50)}...");
+        
+        using var connection = new Npgsql.NpgsqlConnection(connectionString);
+        await connection.OpenAsync();
+        
+        var command = new Npgsql.NpgsqlCommand("SELECT version()", connection);
+        var version = await command.ExecuteScalarAsync();
+        
+        await connection.CloseAsync();
+        
+        return Results.Ok(new { 
+            status = "success", 
+            message = "Database connection successful",
+            version = version?.ToString()
+        });
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "Raw database connection failed");
         return Results.Problem(detail: ex.Message, statusCode: 500);
     }
 });
