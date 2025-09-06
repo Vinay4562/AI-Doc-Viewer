@@ -41,7 +41,7 @@ services:
       - key: ASPNETCORE_ENVIRONMENT
         value: Production
       - key: ConnectionStrings__DefaultConnection
-        value: postgresql://appuser:bTJKzRnQjpLZ8nfX3QHH07ZC9DhCNgbV@dpg-d2u0dfruibrs73f730qg-a.oregon-postgres.render.com:5432/docassistant_onbn?sslmode=require
+        value: Host=dpg-d2u0dfruibrs73f730qg-a.oregon-postgres.render.com;Port=5432;Database=docassistant_onbn;Username=appuser;Password=bTJKzRnQjpLZ8nfX3QHH07ZC9DhCNgbV;SSL Mode=Require
       - key: MINIO_ENDPOINT
         value: https://document-assistant-storage.onrender.com
       - key: MINIO_ACCESS_KEY
@@ -82,4 +82,4 @@ services:
     staticPublishPath: ./frontend/dist
     envVars:
       - key: REACT_APP_API_URL
-        value: https://document-assistant-api.onrender.com
+        value: https://ai-doc-viewer-api.onrender.com
