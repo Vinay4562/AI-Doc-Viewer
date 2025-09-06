@@ -2,14 +2,20 @@ FROM python:3.11-slim
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
+    build-essential \
     tesseract-ocr \
     tesseract-ocr-eng \
     libpq-dev \
+    libmupdf-dev \
+    zlib1g-dev \
     gcc \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
+
+# Upgrade pip, setuptools, wheel first
+RUN pip install --upgrade pip setuptools wheel
 
 # Copy requirements and install Python dependencies
 COPY requirements.txt .
