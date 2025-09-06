@@ -1,0 +1,74 @@
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: appuser
+      POSTGRES_PASSWORD: changeme
+      POSTGRES_DB: docassistant
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+
+  minio:
+    image: minio/minio:latest
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    command: server /data
+    ports:
+      - "9000:9000"
+    volumes:
+      - miniodata:/data
+
+  dotnet-api:
+    build: ./dotnet-api
+    depends_on:
+      - postgres
+      - minio
+      - redis
+    environment:
+      ConnectionStrings__DefaultConnection: "Host=postgres;Port=5432;Database=docassistant;Username=appuser;Password=changeme"
+      PY_BASE: "http://py-processor:8000"
+      MINIO_ENDPOINT: "minio:9000"
+      MINIO_ACCESS_KEY: "minioadmin"
+      MINIO_SECRET_KEY: "minioadmin"
+    ports:
+      - "5000:8080"
+
+  py-processor:
+    build: ./py-processor
+    depends_on:
+      - redis
+      - postgres
+      - minio
+    environment:
+      DATABASE_URL: "postgresql://appuser:changeme@postgres:5432/docassistant"
+      REDIS_URL: "redis://redis:6379/0"
+      MINIO_ENDPOINT: "minio:9000"
+      MINIO_ACCESS_KEY: "minioadmin"
+      MINIO_SECRET_KEY: "minioadmin"
+    ports:
+      - "8000:8000"
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 1G
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      - dotnet-api
+
+volumes:
+  pgdata:
+  miniodata:

@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: appuser
+          POSTGRES_PASSWORD: changeme
+          POSTGRES_DB: docassistant
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install Python deps
+        working-directory: ./py-processor
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run Python lint
+        working-directory: ./py-processor
+        run: |
+          python -m pip install flake8
+          flake8 || true
+
+      - name: Build .NET
+        uses: actions/setup-dotnet@v3
+        with:
+          dotnet-version: '8.0.x'
+      - name: Restore and build dotnet
+        working-directory: ./dotnet-api
+        run: |
+          dotnet restore
+          dotnet build --no-restore -c Release
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+      - name: Install frontend deps
+        working-directory: ./frontend
+        run: npm ci
+      - name: Run frontend build
+        working-directory: ./frontend
+        run: npm run build

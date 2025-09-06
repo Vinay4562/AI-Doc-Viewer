@@ -1,0 +1,14 @@
+fastapi
+uvicorn[standard]
+pydantic
+boto3
+minio
+psycopg2-binary
+celery[redis]
+python-multipart
+numpy
+pymupdf
+Pillow
+pytesseract
+requests
+google-generativeai

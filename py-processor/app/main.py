@@ -1,0 +1,310 @@
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+import os, tempfile, pathlib, io, json
+import boto3
+from botocore.client import Config
+import psycopg2
+from psycopg2.extras import execute_values
+import numpy as np
+import fitz  # pymupdf
+from PIL import Image
+import pytesseract
+from typing import List, Optional
+import google.generativeai as genai
+
+# Configuration - environment variables (set in docker-compose)
+MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "minio:9000")
+MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY", "minioadmin")
+MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY", "minioadmin")
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://appuser:changeme@postgres:5432/docassistant")
+VECTOR_DIM = 384  # for all-MiniLM-L6-v2
+
+# Gemini AI Configuration
+GEMINI_API_KEY = "AIzaSyAGm8Ewo331N3AW382djAbfAibDhxhswQA"
+genai.configure(api_key=GEMINI_API_KEY)
+gemini_model = genai.GenerativeModel('gemini-2.0-flash-exp')
+
+# Initialize clients
+s3 = boto3.client("s3",
+                  endpoint_url=f"http://{MINIO_ENDPOINT}",
+                  aws_access_key_id=MINIO_ACCESS_KEY,
+                  aws_secret_access_key=MINIO_SECRET_KEY,
+                  config=Config(signature_version="s3v4"),
+                  region_name="us-east-1")
+# Simple embedding function (placeholder - in production use a proper embedding service)
+def simple_embed(texts):
+    # Return random embeddings for now - replace with actual embedding service
+    return np.random.random((len(texts), 384)).astype(np.float32)
+
+def generate_ai_response(query: str, context: str) -> str:
+    """
+    Generate AI response using Google Gemini Flash 2.5
+    """
+    try:
+        prompt = f"""
+You are an AI assistant that helps users find information from documents. 
+Based on the following context from uploaded documents, please answer the user's question.
+
+User Question: {query}
+
+Context from documents:
+{context}
+
+Instructions:
+1. Provide a clear, helpful answer based on the context provided
+2. If the context doesn't contain enough information to answer the question, say so
+3. Be concise but informative
+4. If you reference specific information, mention that it came from the uploaded documents
+5. If the question is not related to the document content, politely redirect to ask about the document content
+
+Answer:
+"""
+        
+        response = gemini_model.generate_content(prompt)
+        return response.text
+    except Exception as e:
+        return f"I apologize, but I encountered an error while processing your question: {str(e)}. Please try again."
+
+app = FastAPI(title="py-processor")
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+class ExtractIn(BaseModel):
+    documentId: int
+    fileUrl: str  # expected minio://bucket/key or http(s)
+
+class QaIn(BaseModel):
+    query: str
+    documentId: Optional[int] = None
+    top_k: int = 6
+
+def pg_connect():
+    return psycopg2.connect(DATABASE_URL)
+
+def download_from_minio(url: str) -> str:
+    """
+    Downloads file from 'minio://bucket/key' or http(s) and returns local path.
+    """
+    if url.startswith("minio://"):
+        _, _, path = url.partition("minio://")
+        parts = path.split("/", 1)
+        if len(parts) != 2:
+            raise ValueError("minio url must be minio://bucket/key")
+        bucket, key = parts
+        local = tempfile.mktemp(suffix=pathlib.Path(key).suffix)
+        os.makedirs(os.path.dirname(local), exist_ok=True)
+        s3.download_file(bucket, key, local)
+        return local
+    else:
+        # fallback: try HTTP download
+        import requests
+        resp = requests.get(url)
+        if resp.status_code != 200:
+            raise ValueError("failed to download")
+        local = tempfile.mktemp(suffix=".bin")
+        with open(local, "wb") as f:
+            f.write(resp.content)
+        return local
+
+def extract_text_from_pdf(path: str) -> List[dict]:
+    """
+    Optimized PDF text extraction with smarter OCR usage.
+    Only use OCR when text extraction yields very little content.
+    """
+    doc = fitz.open(path)
+    pages = []
+    
+    for i, page in enumerate(doc):
+        # Try text extraction first
+        text = page.get_text("text") or ""
+        
+        # Only use OCR if text is very sparse (less than 20 characters)
+        # and the page seems to have content (not blank)
+        if len(text.strip()) < 20:
+            try:
+                # Check if page has any content by looking at images/rects
+                if page.get_images() or page.get_drawings():
+                    # Render as image and run OCR with optimized settings
+                    pix = page.get_pixmap(dpi=150)  # Reduced DPI for faster processing
+                    img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+                    ocr = pytesseract.image_to_string(img, config='--psm 6')  # Optimized OCR config
+                    text = (text + "\n" + ocr).strip()
+            except Exception as e:
+                # If OCR fails, keep the original text
+                print(f"OCR failed for page {i+1}: {e}")
+        
+        pages.append({"page_no": i+1, "text": text})
+    
+    doc.close()
+    return pages
+
+def chunk_text(text: str, chunk_size=500, overlap=50):
+    """
+    Optimized text chunking with better overlap strategy.
+    """
+    if not text or len(text.strip()) == 0:
+        return []
+    
+    # Split by sentences first for better context preservation
+    sentences = text.split('. ')
+    chunks = []
+    current_chunk = ""
+    
+    for sentence in sentences:
+        # If adding this sentence would exceed chunk size, save current chunk
+        if len(current_chunk) + len(sentence) > chunk_size and current_chunk:
+            chunks.append(current_chunk.strip())
+            # Start new chunk with overlap from previous chunk
+            overlap_text = current_chunk[-overlap:] if len(current_chunk) > overlap else current_chunk
+            current_chunk = overlap_text + ". " + sentence
+        else:
+            current_chunk += ". " + sentence if current_chunk else sentence
+    
+    # Add the last chunk if it has content
+    if current_chunk.strip():
+        chunks.append(current_chunk.strip())
+    
+    return chunks
+
+@app.post("/process/extract")
+async def extract(inp: ExtractIn):
+    try:
+        local = download_from_minio(inp.fileUrl)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"download failed: {e}")
+
+    pages = []
+    try:
+        pages = extract_text_from_pdf(local)
+    except Exception as e:
+        # If not a PDF, try simple OCR of image
+        try:
+            img = Image.open(local)
+            text = pytesseract.image_to_string(img)
+            pages = [{"page_no": 1, "text": text}]
+        except Exception as e2:
+            raise HTTPException(status_code=500, detail=f"extraction failed: {e}; {e2}")
+
+    # store pages to DB
+    conn = pg_connect()
+    cur = conn.cursor()
+    # insert pages into document_pages
+    execute_values(cur,
+                   "INSERT INTO document_pages(document_id, page_no, text) VALUES %s",
+                   [(inp.documentId, p["page_no"], p["text"]) for p in pages])
+    conn.commit()
+    cur.close()
+    conn.close()
+
+    # Enqueue embedding task (for simplicity run inline here)
+    await embed_document(inp.documentId)
+    return {"ok": True, "pages": len(pages)}
+
+async def embed_document(document_id: int):
+    """
+    Optimized document embedding with better chunking and batch processing.
+    """
+    # fetch pages
+    conn = pg_connect()
+    cur = conn.cursor()
+    cur.execute("SELECT id, page_no, text FROM document_pages WHERE document_id=%s", (document_id,))
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    
+    all_chunks = []
+    for rid, page_no, text in rows:
+        if not text or len(text.strip()) == 0: 
+            continue
+        
+        # Use optimized chunking with smaller chunks for better search
+        chunks = chunk_text(text, chunk_size=300, overlap=30)
+        for idx, c in enumerate(chunks):
+            all_chunks.append((document_id, page_no, idx, c))
+    
+    if not all_chunks:
+        return True
+    
+    # Store chunks in batches for better performance
+    conn = pg_connect()
+    cur = conn.cursor()
+    
+    # Process in batches of 100 chunks
+    batch_size = 100
+    for i in range(0, len(all_chunks), batch_size):
+        batch = all_chunks[i:i + batch_size]
+        records = [(r[0], r[1], r[3]) for r in batch]  # Fixed: use r[3] for text, not r[2]
+        
+        execute_values(cur,
+                       "INSERT INTO chunks(document_id, page_no, text) VALUES %s",
+                       records)
+    
+    conn.commit()
+    cur.close()
+    conn.close()
+    return True
+
+@app.post("/qa")
+async def qa(inp: QaIn):
+    """
+    Fixed Q&A with corrected search algorithm.
+    """
+    conn = pg_connect()
+    cur = conn.cursor()
+    
+    # Simplified search algorithm - use any word longer than 1 character
+    query_words = [word.lower().strip() for word in inp.query.split() if len(word.strip()) > 1]
+    
+    if not query_words:
+        cur.close()
+        conn.close()
+        return {
+            "answer": "Please provide a more specific question with meaningful keywords.",
+            "citations": []
+        }
+    
+    # Build search query - use OR for broader matching
+    search_conditions = []
+    params = []
+    
+    for word in query_words:
+        search_conditions.append("text ILIKE %s")
+        params.append(f"%{word}%")
+    
+    where_clause = " OR ".join(search_conditions)
+    
+    if inp.documentId:
+        sql = f"SELECT id, document_id, page_no, text FROM chunks WHERE document_id=%s AND ({where_clause}) LIMIT %s"
+        params = [inp.documentId] + params + [inp.top_k]
+    else:
+        sql = f"SELECT id, document_id, page_no, text FROM chunks WHERE {where_clause} LIMIT %s"
+        params = params + [inp.top_k]
+    
+    cur.execute(sql, params)
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    
+    # Build context with better formatting
+    if rows:
+        context_parts = []
+        for r in rows:
+            context_parts.append(f"[Document {r[1]}, Page {r[2]}]: {r[3]}")
+        context = "\n\n".join(context_parts)
+        
+        # Generate AI response with optimized prompt
+        answer = generate_ai_response(inp.query, context)
+        citations = [{"documentId": r[1], "page": r[2], "score": 1.0} for r in rows]
+    else:
+        answer = "I couldn't find any relevant information in the uploaded documents to answer your question. Please try rephrasing your question or make sure you have uploaded relevant documents."
+        citations = []
+    
+    return {"answer": answer, "citations": citations}
