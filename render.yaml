@@ -29,6 +29,7 @@ services:
         value: minioadmin
       - key: MINIO_ROOT_PASSWORD
         value: minioadmin
+    healthCheckPath: /minio/health/live
 
   # .NET API Service
   - type: web
@@ -80,5 +81,5 @@ services:
     buildCommand: cd frontend && npm install && npm run build
     staticPublishPath: ./frontend/dist
     envVars:
-      - key: VITE_API_URL
+      - key: REACT_APP_API_URL
         value: https://document-assistant-api.onrender.com

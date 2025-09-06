@@ -58,7 +58,7 @@ builder.Services.AddSingleton<IAmazonS3>(provider =>
     {
         ServiceURL = minioEndpoint,
         ForcePathStyle = true,
-        UseHttp = true
+        UseHttp = minioEndpoint.StartsWith("http://")
     };
     
     return new AmazonS3Client(
