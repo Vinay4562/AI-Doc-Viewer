@@ -19,7 +19,7 @@ services:
     plan: starter
 
   # MinIO Object Storage
-  - type: pserv
+  - type: web
     name: document-assistant-storage
     env: docker
     dockerfilePath: ./minio/Dockerfile
@@ -28,7 +28,7 @@ services:
       - key: MINIO_ROOT_USER
         value: minioadmin
       - key: MINIO_ROOT_PASSWORD
-        generateValue: true
+        value: minioadmin
 
   # .NET API Service
   - type: web
@@ -42,7 +42,7 @@ services:
       - key: ConnectionStrings__DefaultConnection
         value: Host=dpg-d2u0dfruibrs73f730qg-a.oregon-postgres.render.com;Port=5432;Database=docassistant_onbn;Username=appuser;Password=bTJKzRnQjpLZ8nfX3QHH07ZC9DhCNgbV;SSL Mode=Require
       - key: MINIO_ENDPOINT
-        value: http://document-assistant-storage:9000
+        value: https://document-assistant-storage.onrender.com
       - key: MINIO_ACCESS_KEY
         value: minioadmin
       - key: MINIO_SECRET_KEY
@@ -65,14 +65,11 @@ services:
           name: document-assistant-redis
           property: connectionString
       - key: MINIO_ENDPOINT
-        value: http://document-assistant-storage:9000
+        value: https://document-assistant-storage.onrender.com
       - key: MINIO_ACCESS_KEY
         value: minioadmin
       - key: MINIO_SECRET_KEY
-        fromService:
-          type: pserv
-          name: document-assistant-storage
-          envVarKey: MINIO_ROOT_PASSWORD
+        value: minioadmin
       - key: GOOGLE_API_KEY
         sync: false
 
