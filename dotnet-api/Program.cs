@@ -167,6 +167,32 @@ app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
 // Test endpoint for CORS debugging
 app.MapGet("/test", () => Results.Ok(new { message = "CORS test successful - SIMPLIFIED VERSION v3", timestamp = DateTime.UtcNow }));
 
+// Simple file upload test endpoint
+app.MapPost("/upload-test", async (HttpRequest req) =>
+{
+    try
+    {
+        var form = await req.ReadFormAsync();
+        var file = form.Files["file"];
+        if (file == null) 
+        {
+            return Results.BadRequest(new { error = "No file provided" });
+        }
+        
+        return Results.Ok(new { 
+            message = "File received successfully", 
+            fileName = file.FileName, 
+            size = file.Length,
+            contentType = file.ContentType,
+            timestamp = DateTime.UtcNow
+        });
+    }
+    catch (Exception ex)
+    {
+        return Results.Problem(detail: ex.Message, statusCode: 500);
+    }
+});
+
 // Simple upload test without database/MinIO
 app.MapPost("/test-upload", async (HttpRequest req) =>
 {
