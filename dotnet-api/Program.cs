@@ -7,7 +7,7 @@ using Amazon.S3;
 using Amazon.S3.Model;
 using Npgsql;
 
-// Force redeploy to pick up new configuration - v2
+// FORCE REDEPLOY - SIMPLIFIED VERSION v3 - NO DATABASE
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -165,7 +165,7 @@ app.MapPost("/documents", async (HttpRequest req, IHttpClientFactory http, ILogg
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
 
 // Test endpoint for CORS debugging
-app.MapGet("/test", () => Results.Ok(new { message = "CORS test successful", timestamp = DateTime.UtcNow }));
+app.MapGet("/test", () => Results.Ok(new { message = "CORS test successful - SIMPLIFIED VERSION v3", timestamp = DateTime.UtcNow }));
 
 // Simple upload test without database/MinIO
 app.MapPost("/test-upload", async (HttpRequest req) =>
