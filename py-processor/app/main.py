@@ -4,14 +4,48 @@ from pydantic import BaseModel
 import os, tempfile, pathlib, io, json
 import boto3
 from botocore.client import Config
-import psycopg2
-from psycopg2.extras import execute_values
-import numpy as np
-import fitz  # pymupdf
-from PIL import Image
-import pytesseract
 from typing import List, Optional
-import google.generativeai as genai
+
+# Database imports with error handling
+# Note: These imports may show linter warnings locally but work fine in Docker
+try:
+    import psycopg2
+    from psycopg2.extras import execute_values
+except ImportError:
+    print("Warning: psycopg2 not found. Database functionality will be limited.")
+    psycopg2 = None
+    execute_values = None
+
+# Scientific computing imports
+try:
+    import numpy as np
+except ImportError:
+    print("Warning: numpy not found. Some features may not work.")
+    np = None
+
+# PDF processing imports
+# Note: These imports may show linter warnings locally but work fine in Docker
+try:
+    import fitz  # pymupdf
+except ImportError:
+    print("Warning: pymupdf not found. PDF processing will not work.")
+    fitz = None
+
+# Image processing imports
+try:
+    from PIL import Image
+    import pytesseract
+except ImportError:
+    print("Warning: PIL or pytesseract not found. OCR functionality will not work.")
+    Image = None
+    pytesseract = None
+
+# AI imports
+try:
+    import google.generativeai as genai
+except ImportError:
+    print("Warning: google-generativeai not found. AI functionality will not work.")
+    genai = None
 
 # Configuration - environment variables (set in docker-compose)
 MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "minio:9000")
@@ -37,12 +71,17 @@ s3 = boto3.client("s3",
 # Simple embedding function (placeholder - in production use a proper embedding service)
 def simple_embed(texts):
     # Return random embeddings for now - replace with actual embedding service
+    if np is None:
+        raise HTTPException(status_code=500, detail="NumPy not available")
     return np.random.random((len(texts), 384)).astype(np.float32)
 
 def generate_ai_response(query: str, context: str) -> str:
     """
     Generate AI response using Google Gemini Flash 2.5
     """
+    if genai is None:
+        return "AI service not available. Please check configuration."
+    
     try:
         prompt = f"""
 You are an AI assistant that helps users find information from documents. 
@@ -98,6 +137,8 @@ class QaIn(BaseModel):
     top_k: int = 6
 
 def pg_connect():
+    if psycopg2 is None:
+        raise HTTPException(status_code=500, detail="Database connection not available")
     return psycopg2.connect(DATABASE_URL)
 
 def download_from_minio(url: str) -> str:
@@ -130,6 +171,9 @@ def extract_text_from_pdf(path: str) -> List[dict]:
     Optimized PDF text extraction with smarter OCR usage.
     Only use OCR when text extraction yields very little content.
     """
+    if fitz is None:
+        raise HTTPException(status_code=500, detail="PDF processing not available")
+    
     doc = fitz.open(path)
     pages = []
     
@@ -139,7 +183,7 @@ def extract_text_from_pdf(path: str) -> List[dict]:
         
         # Only use OCR if text is very sparse (less than 20 characters)
         # and the page seems to have content (not blank)
-        if len(text.strip()) < 20:
+        if len(text.strip()) < 20 and Image is not None and pytesseract is not None:
             try:
                 # Check if page has any content by looking at images/rects
                 if page.get_images() or page.get_drawings():
@@ -208,6 +252,8 @@ async def extract(inp: ExtractIn):
     conn = pg_connect()
     cur = conn.cursor()
     # insert pages into document_pages
+    if execute_values is None:
+        raise HTTPException(status_code=500, detail="Database utilities not available")
     execute_values(cur,
                    "INSERT INTO document_pages(document_id, page_no, text) VALUES %s",
                    [(inp.documentId, p["page_no"], p["text"]) for p in pages])
@@ -254,6 +300,8 @@ async def embed_document(document_id: int):
         batch = all_chunks[i:i + batch_size]
         records = [(r[0], r[1], r[3]) for r in batch]  # Fixed: use r[3] for text, not r[2]
         
+        if execute_values is None:
+            raise HTTPException(status_code=500, detail="Database utilities not available")
         execute_values(cur,
                        "INSERT INTO chunks(document_id, page_no, text) VALUES %s",
                        records)
