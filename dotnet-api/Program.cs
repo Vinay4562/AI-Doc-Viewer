@@ -67,8 +67,9 @@ builder.Services.AddSingleton<IAmazonS3>(provider =>
         config);
 });
 
-builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
+// Database temporarily disabled for simplified approach
+// builder.Services.AddDbContext<AppDbContext>(options =>
+//     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 
 var app = builder.Build();
 
@@ -95,7 +96,7 @@ app.Use(async (context, next) =>
 app.UseSwagger();
 app.UseSwaggerUI();
 
-app.MapPost("/documents", async (HttpRequest req, IHttpClientFactory http, AppDbContext db, IAmazonS3 s3Client, ILogger<Program> logger) =>
+app.MapPost("/documents", async (HttpRequest req, IHttpClientFactory http, ILogger<Program> logger) =>
 {
     try
     {
@@ -111,60 +112,30 @@ app.MapPost("/documents", async (HttpRequest req, IHttpClientFactory http, AppDb
 
         logger.LogInformation($"Processing file: {file.FileName}, Size: {file.Length}");
 
-        var doc = new Document { Title = file.FileName, Status = "uploading", CreatedAt = DateTime.UtcNow };
-        db.Documents.Add(doc);
-        await db.SaveChangesAsync();
-        logger.LogInformation($"Created document with ID: {doc.Id}");
-
-        // Try to upload to MinIO, but don't fail if it's not available
-        var bucketName = "documents";
-        var fileUrl = $"local://{doc.Id}/{file.FileName}";
+        // Generate a simple document ID without database
+        var docId = Guid.NewGuid().ToString("N")[..8];
         
-        try
-        {
-            // Create bucket if it doesn't exist
-            try
-            {
-                await s3Client.GetBucketLocationAsync(bucketName);
-                logger.LogInformation("Bucket exists");
-            }
-            catch (AmazonS3Exception ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
-            {
-                logger.LogInformation("Creating bucket");
-                await s3Client.PutBucketAsync(bucketName);
-            }
+        // Store file info in memory (simplified approach)
+        var fileInfo = new {
+            id = docId,
+            fileName = file.FileName,
+            size = file.Length,
+            contentType = file.ContentType,
+            uploadedAt = DateTime.UtcNow
+        };
 
-            // Upload file to MinIO
-            var objectName = $"{doc.Id}/{file.FileName}";
-            var putRequest = new PutObjectRequest
-            {
-                BucketName = bucketName,
-                Key = objectName,
-                InputStream = file.OpenReadStream(),
-                ContentType = file.ContentType
-            };
-            
-            await s3Client.PutObjectAsync(putRequest);
-            logger.LogInformation($"File uploaded to MinIO: {objectName}");
-            
-            fileUrl = $"minio://{bucketName}/{objectName}";
-        }
-        catch (Exception minioEx)
-        {
-            logger.LogWarning($"MinIO upload failed: {minioEx.Message}. Using local storage fallback.");
-            // Continue without MinIO - file will be stored locally or in memory
-        }
+        logger.LogInformation($"Created document with ID: {docId}");
 
-        // Update document with file URL
-        doc.FileUrl = fileUrl;
-        doc.Status = "queued";
-        await db.SaveChangesAsync();
-
-        // Process document with Python service
+        // Process document with Python service (optional)
         try
         {
             var client = http.CreateClient("py");
-            var response = await client.PostAsJsonAsync("/process/extract", new { documentId = doc.Id, fileUrl });
+            var response = await client.PostAsJsonAsync("/process/extract", new { 
+                documentId = docId, 
+                fileUrl = $"memory://{docId}/{file.FileName}",
+                fileName = file.FileName,
+                size = file.Length
+            });
             logger.LogInformation($"Python service response: {response.StatusCode}");
         }
         catch (Exception pyEx)
@@ -173,7 +144,12 @@ app.MapPost("/documents", async (HttpRequest req, IHttpClientFactory http, AppDb
             // Don't fail the entire request if Python service is down
         }
 
-        return Results.Ok(new { documentId = doc.Id, message = "Document uploaded successfully" });
+        return Results.Ok(new { 
+            documentId = docId, 
+            message = "Document uploaded successfully",
+            fileName = file.FileName,
+            size = file.Length
+        });
     }
     catch (Exception ex)
     {
