@@ -29,8 +29,11 @@ except ImportError:
 try:
     import fitz  # pymupdf
 except ImportError:
-    print("Warning: pymupdf not found. PDF processing will not work.")
-    fitz = None
+    try:
+        import pymupdf as fitz
+    except ImportError:
+        print("Warning: pymupdf/fitz not found. PDF processing will not work.")
+        fitz = None
 
 # Image processing imports
 try:
@@ -53,6 +56,7 @@ MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "minio:9000")
 MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY", "minioadmin")
 MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY", "minioadmin")
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://appuser:changeme@postgres:5432/docassistant")
+REDIS_URL = os.getenv("REDIS_URL")  # Fixed: defined as environment variable or None
 VECTOR_DIM = 384  # for all-MiniLM-L6-v2
 
 # Gemini AI Configuration
@@ -110,7 +114,6 @@ Instructions:
 
 Answer:
 """
-        
         response = gemini_model.generate_content(prompt)
         return response.text
     except Exception as e:
@@ -136,6 +139,17 @@ async def health_check():
     """Health check endpoint for monitoring"""
     return {"status": "healthy", "service": "py-processor"}
 
+@app.get("/test")
+async def test_endpoint():
+    """Test endpoint to verify service functionality"""
+    return {
+        "message": "Processor service is working",
+        "timestamp": datetime.now().isoformat(),
+        "ai_available": gemini_model is not None,
+        "database_available": psycopg2 is not None,
+        "minio_available": True
+    }
+
 @app.get("/debug")
 async def debug_info():
     """Debug endpoint to check service configuration and connectivity"""
@@ -151,11 +165,11 @@ async def debug_info():
         },
         "dependencies": {
             "psycopg2": psycopg2 is not None,
-            "numpy": numpy is not None,
+            "numpy": np is not None,
             "fitz": fitz is not None,
-            "PIL": PIL is not None,
+            "PIL": Image is not None,
             "pytesseract": pytesseract is not None,
-            "google_generativeai": google_generativeai is not None
+            "google_generativeai": genai is not None
         }
     }
     
@@ -194,7 +208,7 @@ async def init_database():
             )
         """)
         
-        # Create chunks table (without vector for now)
+        # Create chunks table (without vector column - pgvector extension not available)
         cur.execute("""
             CREATE TABLE IF NOT EXISTS chunks (
                 id SERIAL PRIMARY KEY,
