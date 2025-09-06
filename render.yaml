@@ -40,9 +40,7 @@ services:
       - key: ASPNETCORE_ENVIRONMENT
         value: Production
       - key: ConnectionStrings__DefaultConnection
-        fromDatabase:
-          name: document-assistant-db
-          property: connectionString
+        value: postgresql://appuser:bTJKzRnQjpLZ8nfX3QHH07ZC9DhCNgbV@dpg-d2u0dfruibrs73f730qg-a.oregon-postgres.render.com/docassistant_onbn
       - key: Redis__ConnectionString
         fromService:
           type: redis
@@ -68,9 +66,7 @@ services:
     plan: starter
     envVars:
       - key: DATABASE_URL
-        fromDatabase:
-          name: document-assistant-db
-          property: connectionString
+        value: postgresql://appuser:bTJKzRnQjpLZ8nfX3QHH07ZC9DhCNgbV@dpg-d2u0dfruibrs73f730qg-a.oregon-postgres.render.com/docassistant_onbn
       - key: REDIS_URL
         fromService:
           type: redis

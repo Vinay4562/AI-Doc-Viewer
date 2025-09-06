@@ -255,4 +255,49 @@ app.MapGet("/debug", async (AppDbContext db, IAmazonS3 s3Client, IHttpClientFact
     return Results.Ok(results);
 });
 
+// Initialize database tables
+app.MapPost("/init-db", async (AppDbContext db, ILogger<Program> logger) =>
+{
+    try
+    {
+        logger.LogInformation("Initializing database tables...");
+        
+        // Create tables using raw SQL
+        await db.Database.ExecuteSqlRawAsync(@"
+            CREATE EXTENSION IF NOT EXISTS vector;
+            
+            CREATE TABLE IF NOT EXISTS documents(
+              id bigserial PRIMARY KEY,
+              title text,
+              file_url text,
+              status text,
+              created_at timestamptz DEFAULT now()
+            );
+            
+            CREATE TABLE IF NOT EXISTS document_pages(
+              id bigserial PRIMARY KEY,
+              document_id bigint REFERENCES documents(id) ON DELETE CASCADE,
+              page_no int,
+              text text
+            );
+            
+            CREATE TABLE IF NOT EXISTS chunks(
+              id bigserial PRIMARY KEY,
+              document_id bigint REFERENCES documents(id) ON DELETE CASCADE,
+              page_no int,
+              text text,
+              embedding vector(384)
+            );
+        ");
+        
+        logger.LogInformation("Database tables initialized successfully");
+        return Results.Ok(new { message = "Database initialized successfully" });
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "Failed to initialize database");
+        return Results.Problem(detail: ex.Message, statusCode: 500);
+    }
+});
+
 app.Run();
