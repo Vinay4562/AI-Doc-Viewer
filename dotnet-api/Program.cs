@@ -323,10 +323,10 @@ app.MapGet("/test-db", async (IConfiguration config, ILogger<Program> logger) =>
         var connectionString = config.GetConnectionString("DefaultConnection");
         logger.LogInformation($"Testing connection string: {connectionString?.Substring(0, 50)}...");
         
-        using var connection = new Npgsql.NpgsqlConnection(connectionString);
+        using var connection = new NpgsqlConnection(connectionString);
         await connection.OpenAsync();
         
-        var command = new Npgsql.NpgsqlCommand("SELECT version()", connection);
+        var command = new NpgsqlCommand("SELECT version()", connection);
         var version = await command.ExecuteScalarAsync();
         
         await connection.CloseAsync();
@@ -340,6 +340,59 @@ app.MapGet("/test-db", async (IConfiguration config, ILogger<Program> logger) =>
     catch (Exception ex)
     {
         logger.LogError(ex, "Raw database connection failed");
+        return Results.Problem(detail: ex.Message, statusCode: 500);
+    }
+});
+
+// Initialize database using raw connection
+app.MapPost("/init-db-raw", async (IConfiguration config, ILogger<Program> logger) =>
+{
+    try
+    {
+        var connectionString = config.GetConnectionString("DefaultConnection");
+        logger.LogInformation("Initializing database tables using raw connection...");
+        
+        using var connection = new NpgsqlConnection(connectionString);
+        await connection.OpenAsync();
+        
+        var initSql = @"
+            CREATE EXTENSION IF NOT EXISTS vector;
+            
+            CREATE TABLE IF NOT EXISTS documents(
+              id bigserial PRIMARY KEY,
+              title text,
+              file_url text,
+              status text,
+              created_at timestamptz DEFAULT now()
+            );
+            
+            CREATE TABLE IF NOT EXISTS document_pages(
+              id bigserial PRIMARY KEY,
+              document_id bigint REFERENCES documents(id) ON DELETE CASCADE,
+              page_no int,
+              text text
+            );
+            
+            CREATE TABLE IF NOT EXISTS chunks(
+              id bigserial PRIMARY KEY,
+              document_id bigint REFERENCES documents(id) ON DELETE CASCADE,
+              page_no int,
+              text text,
+              embedding vector(384)
+            );
+        ";
+        
+        var command = new NpgsqlCommand(initSql, connection);
+        await command.ExecuteNonQueryAsync();
+        
+        await connection.CloseAsync();
+        
+        logger.LogInformation("Database tables initialized successfully using raw connection");
+        return Results.Ok(new { message = "Database initialized successfully using raw connection" });
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "Failed to initialize database using raw connection");
         return Results.Problem(detail: ex.Message, statusCode: 500);
     }
 });
