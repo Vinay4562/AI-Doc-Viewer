@@ -57,14 +57,22 @@ VECTOR_DIM = 384  # for all-MiniLM-L6-v2
 
 # Gemini AI Configuration
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-if not GEMINI_API_KEY:
-    raise ValueError("GEMINI_API_KEY environment variable is required")
-genai.configure(api_key=GEMINI_API_KEY)
-gemini_model = genai.GenerativeModel('gemini-2.0-flash-exp')
+if GEMINI_API_KEY and genai:
+    try:
+        genai.configure(api_key=GEMINI_API_KEY)
+        gemini_model = genai.GenerativeModel('gemini-2.0-flash-exp')
+    except Exception as e:
+        print(f"Warning: Failed to configure Gemini AI: {e}")
+        gemini_model = None
+else:
+    print("Warning: GEMINI_API_KEY not set or google-generativeai not available")
+    gemini_model = None
 
 # Initialize clients
+# Use https for external MinIO service, http for local
+endpoint_url = f"https://{MINIO_ENDPOINT}" if MINIO_ENDPOINT.startswith("document-assistant-storage") else f"http://{MINIO_ENDPOINT}"
 s3 = boto3.client("s3",
-                  endpoint_url=f"http://{MINIO_ENDPOINT}",
+                  endpoint_url=endpoint_url,
                   aws_access_key_id=MINIO_ACCESS_KEY,
                   aws_secret_access_key=MINIO_SECRET_KEY,
                   config=Config(signature_version="s3v4"),
@@ -80,7 +88,7 @@ def generate_ai_response(query: str, context: str) -> str:
     """
     Generate AI response using Google Gemini Flash 2.5
     """
-    if genai is None:
+    if genai is None or gemini_model is None:
         return "AI service not available. Please check configuration."
     
     try:

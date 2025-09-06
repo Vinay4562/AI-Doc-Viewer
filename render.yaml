@@ -71,7 +71,7 @@ services:
         value: minioadmin
       - key: MINIO_SECRET_KEY
         value: minioadmin
-      - key: GOOGLE_API_KEY
+      - key: GEMINI_API_KEY
         sync: false
 
   # Frontend Service
