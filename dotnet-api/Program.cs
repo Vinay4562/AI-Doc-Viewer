@@ -96,11 +96,11 @@ app.Use(async (context, next) =>
 app.UseSwagger();
 app.UseSwaggerUI();
 
-app.MapPost("/documents", async (HttpRequest req, IHttpClientFactory http, ILogger<Program> logger) =>
+app.MapPost("/documents", async (HttpRequest req, ILogger<Program> logger) =>
 {
     try
     {
-        logger.LogInformation("Received document upload request");
+        logger.LogInformation("=== SIMPLIFIED DOCUMENTS ENDPOINT - NO DATABASE ===");
         
         var form = await req.ReadFormAsync();
         var file = form.Files["file"];
@@ -115,40 +115,14 @@ app.MapPost("/documents", async (HttpRequest req, IHttpClientFactory http, ILogg
         // Generate a simple document ID without database
         var docId = Guid.NewGuid().ToString("N")[..8];
         
-        // Store file info in memory (simplified approach)
-        var fileInfo = new {
-            id = docId,
-            fileName = file.FileName,
-            size = file.Length,
-            contentType = file.ContentType,
-            uploadedAt = DateTime.UtcNow
-        };
-
         logger.LogInformation($"Created document with ID: {docId}");
-
-        // Process document with Python service (optional)
-        try
-        {
-            var client = http.CreateClient("py");
-            var response = await client.PostAsJsonAsync("/process/extract", new { 
-                documentId = docId, 
-                fileUrl = $"memory://{docId}/{file.FileName}",
-                fileName = file.FileName,
-                size = file.Length
-            });
-            logger.LogInformation($"Python service response: {response.StatusCode}");
-        }
-        catch (Exception pyEx)
-        {
-            logger.LogWarning($"Python service call failed: {pyEx.Message}");
-            // Don't fail the entire request if Python service is down
-        }
 
         return Results.Ok(new { 
             documentId = docId, 
-            message = "Document uploaded successfully",
+            message = "Document uploaded successfully - SIMPLIFIED VERSION",
             fileName = file.FileName,
-            size = file.Length
+            size = file.Length,
+            timestamp = DateTime.UtcNow
         });
     }
     catch (Exception ex)
