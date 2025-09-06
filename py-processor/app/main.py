@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import os, tempfile, pathlib, io, json
+from datetime import datetime
 import boto3
 from botocore.client import Config
 from typing import List, Optional
@@ -126,6 +127,45 @@ app.add_middleware(
 async def health_check():
     """Health check endpoint for monitoring"""
     return {"status": "healthy", "service": "py-processor"}
+
+@app.get("/debug")
+async def debug_info():
+    """Debug endpoint to check service configuration and connectivity"""
+    debug_info = {
+        "service": "py-processor",
+        "timestamp": datetime.now().isoformat(),
+        "environment": {
+            "DATABASE_URL": DATABASE_URL[:20] + "..." if DATABASE_URL else "Not set",
+            "REDIS_URL": REDIS_URL[:20] + "..." if REDIS_URL else "Not set",
+            "MINIO_ENDPOINT": MINIO_ENDPOINT,
+            "MINIO_ACCESS_KEY": MINIO_ACCESS_KEY[:10] + "..." if MINIO_ACCESS_KEY else "Not set",
+            "GEMINI_API_KEY": "Set" if GEMINI_API_KEY else "Not set"
+        },
+        "dependencies": {
+            "psycopg2": psycopg2 is not None,
+            "numpy": numpy is not None,
+            "fitz": fitz is not None,
+            "PIL": PIL is not None,
+            "pytesseract": pytesseract is not None,
+            "google_generativeai": google_generativeai is not None
+        }
+    }
+    
+    # Test database connection
+    try:
+        if psycopg2:
+            conn = psycopg2.connect(DATABASE_URL)
+            cur = conn.cursor()
+            cur.execute("SELECT 1")
+            cur.close()
+            conn.close()
+            debug_info["database"] = {"status": "ok", "connected": True}
+        else:
+            debug_info["database"] = {"status": "error", "message": "psycopg2 not available"}
+    except Exception as e:
+        debug_info["database"] = {"status": "error", "message": str(e)}
+    
+    return debug_info
 
 class ExtractIn(BaseModel):
     documentId: int
@@ -316,54 +356,62 @@ async def qa(inp: QaIn):
     """
     Fixed Q&A with corrected search algorithm.
     """
-    conn = pg_connect()
-    cur = conn.cursor()
+    try:
+        conn = pg_connect()
+        cur = conn.cursor()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database connection failed: {str(e)}")
     
-    # Simplified search algorithm - use any word longer than 1 character
-    query_words = [word.lower().strip() for word in inp.query.split() if len(word.strip()) > 1]
-    
-    if not query_words:
+    try:
+        # Simplified search algorithm - use any word longer than 1 character
+        query_words = [word.lower().strip() for word in inp.query.split() if len(word.strip()) > 1]
+        
+        if not query_words:
+            cur.close()
+            conn.close()
+            return {
+                "answer": "Please provide a more specific question with meaningful keywords.",
+                "citations": []
+            }
+        
+        # Build search query - use OR for broader matching
+        search_conditions = []
+        params = []
+        
+        for word in query_words:
+            search_conditions.append("text ILIKE %s")
+            params.append(f"%{word}%")
+        
+        where_clause = " OR ".join(search_conditions)
+        
+        if inp.documentId:
+            sql = f"SELECT id, document_id, page_no, text FROM chunks WHERE document_id=%s AND ({where_clause}) LIMIT %s"
+            params = [inp.documentId] + params + [inp.top_k]
+        else:
+            sql = f"SELECT id, document_id, page_no, text FROM chunks WHERE {where_clause} LIMIT %s"
+            params = params + [inp.top_k]
+        
+        cur.execute(sql, params)
+        rows = cur.fetchall()
         cur.close()
         conn.close()
-        return {
-            "answer": "Please provide a more specific question with meaningful keywords.",
-            "citations": []
-        }
-    
-    # Build search query - use OR for broader matching
-    search_conditions = []
-    params = []
-    
-    for word in query_words:
-        search_conditions.append("text ILIKE %s")
-        params.append(f"%{word}%")
-    
-    where_clause = " OR ".join(search_conditions)
-    
-    if inp.documentId:
-        sql = f"SELECT id, document_id, page_no, text FROM chunks WHERE document_id=%s AND ({where_clause}) LIMIT %s"
-        params = [inp.documentId] + params + [inp.top_k]
-    else:
-        sql = f"SELECT id, document_id, page_no, text FROM chunks WHERE {where_clause} LIMIT %s"
-        params = params + [inp.top_k]
-    
-    cur.execute(sql, params)
-    rows = cur.fetchall()
-    cur.close()
-    conn.close()
-    
-    # Build context with better formatting
-    if rows:
-        context_parts = []
-        for r in rows:
-            context_parts.append(f"[Document {r[1]}, Page {r[2]}]: {r[3]}")
-        context = "\n\n".join(context_parts)
         
-        # Generate AI response with optimized prompt
-        answer = generate_ai_response(inp.query, context)
-        citations = [{"documentId": r[1], "page": r[2], "score": 1.0} for r in rows]
-    else:
-        answer = "I couldn't find any relevant information in the uploaded documents to answer your question. Please try rephrasing your question or make sure you have uploaded relevant documents."
-        citations = []
-    
-    return {"answer": answer, "citations": citations}
+        # Build context with better formatting
+        if rows:
+            context_parts = []
+            for r in rows:
+                context_parts.append(f"[Document {r[1]}, Page {r[2]}]: {r[3]}")
+            context = "\n\n".join(context_parts)
+            
+            # Generate AI response with optimized prompt
+            answer = generate_ai_response(inp.query, context)
+            citations = [{"documentId": r[1], "page": r[2], "score": 1.0} for r in rows]
+        else:
+            answer = "I couldn't find any relevant information in the uploaded documents to answer your question. Please try rephrasing your question or make sure you have uploaded relevant documents."
+            citations = []
+        
+        return {"answer": answer, "citations": citations}
+    except Exception as e:
+        cur.close()
+        conn.close()
+        raise HTTPException(status_code=500, detail=f"Q&A processing failed: {str(e)}")
