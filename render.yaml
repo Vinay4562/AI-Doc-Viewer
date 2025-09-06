@@ -40,7 +40,7 @@ services:
       - key: ASPNETCORE_ENVIRONMENT
         value: Production
       - key: ConnectionStrings__DefaultConnection
-        value: postgresql://appuser:bTJKzRnQjpLZ8nfX3QHH07ZC9DhCNgbV@dpg-d2u0dfruibrs73f730qg-a:5432/docassistant_onbn
+        value: Host=dpg-d2u0dfruibrs73f730qg-a;Port=5432;Database=docassistant_onbn;Username=appuser;Password=bTJKzRnQjpLZ8nfX3QHH07ZC9DhCNgbV
       - key: MINIO_ENDPOINT
         value: http://document-assistant-storage:9000
       - key: MINIO_ACCESS_KEY
