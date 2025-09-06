@@ -46,7 +46,7 @@ builder.Services.AddHttpClient("py", c => c.BaseAddress = new Uri(builder.Config
 // Add MinIO service (using AWS S3 SDK for MinIO compatibility)
 builder.Services.AddSingleton<IAmazonS3>(provider =>
 {
-    var minioEndpoint = builder.Configuration["MINIO_ENDPOINT"] ?? "http://minio:9000";
+    var minioEndpoint = builder.Configuration["MINIO_ENDPOINT"] ?? "https://document-assistant-storage.onrender.com";
     
     // Handle both Docker service names and full URLs
     if (!minioEndpoint.StartsWith("http"))
