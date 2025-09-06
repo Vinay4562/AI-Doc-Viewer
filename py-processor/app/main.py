@@ -56,7 +56,7 @@ MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "minio:9000")
 MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY", "minioadmin")
 MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY", "minioadmin")
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://appuser:changeme@postgres:5432/docassistant")
-REDIS_URL = os.getenv("REDIS_URL")  # Fixed: defined as environment variable or None
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")  # Redis connection URL
 VECTOR_DIM = 384  # for all-MiniLM-L6-v2
 
 # Gemini AI Configuration
@@ -142,11 +142,22 @@ async def health_check():
 @app.get("/test")
 async def test_endpoint():
     """Test endpoint to verify service functionality"""
+    # Test Redis connection
+    redis_available = False
+    try:
+        import redis
+        r = redis.from_url(REDIS_URL)
+        r.ping()
+        redis_available = True
+    except:
+        pass
+    
     return {
         "message": "Processor service is working",
         "timestamp": datetime.now().isoformat(),
         "ai_available": gemini_model is not None,
         "database_available": psycopg2 is not None,
+        "redis_available": redis_available,
         "minio_available": True
     }
 
@@ -186,6 +197,15 @@ async def debug_info():
             debug_info["database"] = {"status": "error", "message": "psycopg2 not available"}
     except Exception as e:
         debug_info["database"] = {"status": "error", "message": str(e)}
+    
+    # Test Redis connection
+    try:
+        import redis
+        r = redis.from_url(REDIS_URL)
+        r.ping()
+        debug_info["redis"] = {"status": "ok", "connected": True}
+    except Exception as e:
+        debug_info["redis"] = {"status": "error", "message": str(e)}
     
     return debug_info
 

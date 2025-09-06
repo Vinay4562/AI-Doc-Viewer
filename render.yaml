@@ -61,10 +61,7 @@ services:
       - key: DATABASE_URL
         value: postgresql://appuser:bTJKzRnQjpLZ8nfX3QHH07ZC9DhCNgbV@dpg-d2u0dfruibrs73f730qg-a.oregon-postgres.render.com:5432/docassistant_onbn?sslmode=require
       - key: REDIS_URL
-        fromService:
-          type: redis
-          name: document-assistant-redis
-          property: connectionString
+        value: redis://red-d2u0g5er433s73dr3u7g:6379
       - key: MINIO_ENDPOINT
         value: https://document-assistant-storage.onrender.com
       - key: MINIO_ACCESS_KEY
@@ -72,7 +69,7 @@ services:
       - key: MINIO_SECRET_KEY
         value: minioadmin
       - key: GEMINI_API_KEY
-        sync: false
+        value: AIzaSyAGm8Ewo331N3AW382djAbfAibDhxhswQA
 
   # Frontend Service
   - type: web
