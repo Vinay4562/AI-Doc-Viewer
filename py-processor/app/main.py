@@ -194,14 +194,13 @@ async def init_database():
             )
         """)
         
-        # Create chunks table
+        # Create chunks table (without vector for now)
         cur.execute("""
             CREATE TABLE IF NOT EXISTS chunks (
                 id SERIAL PRIMARY KEY,
                 document_id INTEGER REFERENCES documents(id),
                 page_no INTEGER NOT NULL,
                 text TEXT NOT NULL,
-                embedding VECTOR(1536),
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
