@@ -193,4 +193,46 @@ app.MapPost("/test-upload", async (HttpRequest req) =>
     }
 });
 
+// Debug endpoint to check service connections
+app.MapGet("/debug", async (AppDbContext db, IAmazonS3 s3Client, IHttpClientFactory http, ILogger<Program> logger) =>
+{
+    var results = new Dictionary<string, object>();
+    
+    try
+    {
+        // Test database connection
+        var dbTest = await db.Database.CanConnectAsync();
+        results["database"] = new { status = "ok", connected = dbTest };
+    }
+    catch (Exception ex)
+    {
+        results["database"] = new { status = "error", message = ex.Message };
+    }
+    
+    try
+    {
+        // Test MinIO connection
+        var buckets = await s3Client.ListBucketsAsync();
+        results["minio"] = new { status = "ok", buckets = buckets.Buckets.Count };
+    }
+    catch (Exception ex)
+    {
+        results["minio"] = new { status = "error", message = ex.Message };
+    }
+    
+    try
+    {
+        // Test Python service connection
+        var client = http.CreateClient("py");
+        var response = await client.GetAsync("/health");
+        results["python_service"] = new { status = "ok", httpStatus = response.StatusCode };
+    }
+    catch (Exception ex)
+    {
+        results["python_service"] = new { status = "error", message = ex.Message };
+    }
+    
+    return Results.Ok(results);
+});
+
 app.Run();
