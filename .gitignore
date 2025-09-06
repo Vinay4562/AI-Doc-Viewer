@@ -1,17 +1,53 @@
 # Python
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
 .env
+.env.local
+.env.production
+.env.staging
 
 # Node
 node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
 # Dotnet
 bin/
 obj/
+*.user
+*.suo
+*.cache
 
 # VSCode
 .vscode/
+.idea/
+
+# Environment and secrets
+*.env
+.env*
+secrets.json
+config.json
+appsettings.Production.json
+appsettings.Development.json
+
+# API Keys and sensitive data
+*api_key*
+*secret*
+*password*
+*credential*
 
 # Temp
 *.log
+*.tmp
+*.temp
+
+# OS
+.DS_Store
+Thumbs.db

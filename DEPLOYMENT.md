@@ -13,10 +13,15 @@ This guide will help you deploy the AI-Powered Document Assistant to Render.
 You'll need to set up these environment variables in Render:
 
 ### Required Environment Variables:
-- `GEMINI_API_KEY`: Your Google Gemini API key
+- `GEMINI_API_KEY`: Your Google Gemini API key (**REQUIRED** - Get from [Google AI Studio](https://makersuite.google.com/app/apikey))
 - `MINIO_ENDPOINT`: MinIO endpoint (for file storage)
 - `MINIO_ACCESS_KEY`: MinIO access key
 - `MINIO_SECRET_KEY`: MinIO secret key
+
+### Security Notes:
+- **NEVER** commit API keys or secrets to the repository
+- Use environment variables for all sensitive configuration
+- The `env.example` file shows the required variables without actual values
 
 ## 🏗️ Deployment Steps
 

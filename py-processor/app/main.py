@@ -21,7 +21,9 @@ DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://appuser:changeme@postgres
 VECTOR_DIM = 384  # for all-MiniLM-L6-v2
 
 # Gemini AI Configuration
-GEMINI_API_KEY = "AIzaSyAGm8Ewo331N3AW382djAbfAibDhxhswQA"
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+if not GEMINI_API_KEY:
+    raise ValueError("GEMINI_API_KEY environment variable is required")
 genai.configure(api_key=GEMINI_API_KEY)
 gemini_model = genai.GenerativeModel('gemini-2.0-flash-exp')
 
