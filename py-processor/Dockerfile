@@ -6,6 +6,7 @@ RUN apt-get update && apt-get install -y \
     tesseract-ocr-eng \
     libpq-dev \
     gcc \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

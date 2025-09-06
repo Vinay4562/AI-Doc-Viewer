@@ -2,7 +2,7 @@
 
 # Start .NET API in background
 cd /app/dotnet-api
-dotnet dotnet-api.dll &
+dotnet dotnet-api.dll --urls="http://0.0.0.0:8080" &
 DOTNET_PID=$!
 
 # Start Python processor in background

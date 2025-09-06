@@ -39,6 +39,7 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     tesseract-ocr \
     tesseract-ocr-eng \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements and install Python dependencies
@@ -63,8 +64,8 @@ COPY --from=dotnet-api /app/out /app/dotnet-api
 # Copy Python processor
 COPY --from=py-processor /app /app/py-processor
 
-# Install .NET runtime
-RUN apk add --no-cache icu-libs
+# Install .NET runtime and curl
+RUN apk add --no-cache icu-libs curl
 COPY --from=mcr.microsoft.com/dotnet/aspnet:8.0 /usr/share/dotnet /usr/share/dotnet
 ENV PATH="/usr/share/dotnet:${PATH}"
 
