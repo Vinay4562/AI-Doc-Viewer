@@ -167,6 +167,50 @@ async def debug_info():
     
     return debug_info
 
+@app.post("/init-db")
+async def init_database():
+    """Initialize database tables for the processor service"""
+    try:
+        conn = pg_connect()
+        cur = conn.cursor()
+        
+        # Create documents table
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS documents (
+                id SERIAL PRIMARY KEY,
+                filename VARCHAR(255) NOT NULL,
+                file_url TEXT NOT NULL,
+                file_size INTEGER,
+                upload_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                processed BOOLEAN DEFAULT FALSE
+            )
+        """)
+        
+        # Create chunks table
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS chunks (
+                id SERIAL PRIMARY KEY,
+                document_id INTEGER REFERENCES documents(id),
+                page_no INTEGER NOT NULL,
+                text TEXT NOT NULL,
+                embedding VECTOR(1536),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        
+        # Create index for text search
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_chunks_text ON chunks USING gin(to_tsvector('english', text))
+        """)
+        
+        conn.commit()
+        cur.close()
+        conn.close()
+        
+        return {"message": "Database initialized successfully", "tables": ["documents", "chunks"]}
+    except Exception as e:
+        return {"error": f"Database initialization failed: {str(e)}"}
+
 class ExtractIn(BaseModel):
     documentId: int
     fileUrl: str  # expected minio://bucket/key or http(s)
