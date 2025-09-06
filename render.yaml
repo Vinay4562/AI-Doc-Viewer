@@ -58,7 +58,7 @@ services:
     plan: starter
     envVars:
       - key: DATABASE_URL
-        value: postgresql://appuser:bTJKzRnQjpLZ8nfX3QHH07ZC9DhCNgbV@dpg-d2u0dfruibrs73f730qg-a:5432/docassistant_onbn
+        value: postgresql://appuser:bTJKzRnQjpLZ8nfX3QHH07ZC9DhCNgbV@dpg-d2u0dfruibrs73f730qg-a/docassistant_onbn
       - key: REDIS_URL
         fromService:
           type: redis
