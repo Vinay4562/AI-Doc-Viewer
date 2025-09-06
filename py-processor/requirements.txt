@@ -2,7 +2,6 @@ pip>=23.1
 setuptools>=65.5.0
 wheel>=0.40.0
 
-
 # Core dependencies
 fastapi==0.104.1
 uvicorn[standard]==0.24.0
@@ -35,7 +34,3 @@ pytesseract==0.3.10
 
 # AI
 google-generativeai==0.3.2
-
-# Build dependencies
-setuptools>=65.0.0
-wheel>=0.38.0
