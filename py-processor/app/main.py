@@ -71,11 +71,20 @@ app = FastAPI(title="py-processor")
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=[
+        "http://localhost:3000",
+        "https://ai-doc-viewer-frontend.onrender.com",
+        "https://ai-doc-viewer-api.onrender.com"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint for monitoring"""
+    return {"status": "healthy", "service": "py-processor"}
 
 class ExtractIn(BaseModel):
     documentId: int
