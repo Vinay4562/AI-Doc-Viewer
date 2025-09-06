@@ -7,6 +7,8 @@ using Amazon.S3;
 using Amazon.S3.Model;
 using Npgsql;
 
+// Force redeploy to pick up new configuration
+
 var builder = WebApplication.CreateBuilder(args);
 
 // Basic services, DB and HTTP client for Python service
