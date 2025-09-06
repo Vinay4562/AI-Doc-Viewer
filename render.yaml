@@ -1,67 +1,99 @@
 services:
-  # Frontend Service
-  - type: web
-    name: ai-doc-viewer-frontend
-    env: node
-    plan: free
-    buildCommand: cd frontend && npm install && npm run build
-    startCommand: cd frontend && npm start
+  # PostgreSQL Database
+  - type: pserv
+    name: document-assistant-db
+    env: docker
+    dockerfilePath: ./postgres/Dockerfile
+    plan: starter
     envVars:
-      - key: NODE_ENV
-        value: production
-      - key: REACT_APP_API_URL
-        value: https://ai-doc-viewer-api.onrender.com
-    healthCheckPath: /
-    
+      - key: POSTGRES_DB
+        value: document_assistant
+      - key: POSTGRES_USER
+        value: postgres
+      - key: POSTGRES_PASSWORD
+        generateValue: true
+
+  # Redis Cache
+  - type: redis
+    name: document-assistant-redis
+    plan: starter
+
+  # MinIO Object Storage
+  - type: pserv
+    name: document-assistant-storage
+    env: docker
+    dockerfilePath: ./minio/Dockerfile
+    plan: starter
+    envVars:
+      - key: MINIO_ROOT_USER
+        value: minioadmin
+      - key: MINIO_ROOT_PASSWORD
+        generateValue: true
+
   # .NET API Service
   - type: web
-    name: ai-doc-viewer-api
-    env: dotnet
-    plan: free
-    buildCommand: cd dotnet-api && dotnet restore && dotnet publish -c Release -o out
-    startCommand: cd dotnet-api/out && dotnet dotnet-api.dll
+    name: document-assistant-api
+    env: docker
+    dockerfilePath: ./dotnet-api/Dockerfile
+    plan: starter
     envVars:
       - key: ASPNETCORE_ENVIRONMENT
         value: Production
       - key: ConnectionStrings__DefaultConnection
         fromDatabase:
-          name: ai-doc-viewer-db
+          name: document-assistant-db
+          property: connectionString
+      - key: Redis__ConnectionString
+        fromService:
+          type: redis
+          name: document-assistant-redis
           property: connectionString
       - key: MinIO__Endpoint
-        value: ${MINIO_ENDPOINT}
+        value: http://document-assistant-storage:9000
       - key: MinIO__AccessKey
-        value: ${MINIO_ACCESS_KEY}
+        value: minioadmin
       - key: MinIO__SecretKey
-        value: ${MINIO_SECRET_KEY}
-    healthCheckPath: /health
-    
+        fromService:
+          type: pserv
+          name: document-assistant-storage
+          envVarKey: MINIO_ROOT_PASSWORD
+      - key: PyProcessor__BaseUrl
+        value: http://document-assistant-py-processor:8000
+
   # Python Processor Service
   - type: web
-    name: ai-doc-viewer-processor
-    env: python
-    plan: free
-    buildCommand: cd py-processor && pip install -r requirements.txt
-    startCommand: cd py-processor && python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    name: document-assistant-py-processor
+    env: docker
+    dockerfilePath: ./py-processor/Dockerfile
+    plan: starter
     envVars:
-      - key: GEMINI_API_KEY
-        value: ${GEMINI_API_KEY}
       - key: DATABASE_URL
         fromDatabase:
-          name: ai-doc-viewer-db
+          name: document-assistant-db
           property: connectionString
       - key: REDIS_URL
         fromService:
           type: redis
-          name: ai-doc-viewer-redis
+          name: document-assistant-redis
           property: connectionString
-    healthCheckPath: /health
+      - key: MINIO_ENDPOINT
+        value: http://document-assistant-storage:9000
+      - key: MINIO_ACCESS_KEY
+        value: minioadmin
+      - key: MINIO_SECRET_KEY
+        fromService:
+          type: pserv
+          name: document-assistant-storage
+          envVarKey: MINIO_ROOT_PASSWORD
+      - key: GOOGLE_API_KEY
+        sync: false
 
-databases:
-  - name: ai-doc-viewer-db
-    plan: free
-    databaseName: docassistant
-    user: appuser
-
-  - name: ai-doc-viewer-redis
-    plan: free
-    type: redis
+  # Frontend Service
+  - type: web
+    name: document-assistant-frontend
+    env: static
+    buildCommand: cd frontend && npm install && npm run build
+    staticPublishPath: ./frontend/dist
+    envVars:
+      - key: VITE_API_URL
+        value: https://document-assistant-api.onrender.com

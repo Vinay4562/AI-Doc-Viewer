@@ -1,25 +1,22 @@
 FROM python:3.11-slim
 
-# Install system dependencies
+# Install only essential system dependencies
 RUN apt-get update && apt-get install -y \
-    build-essential \
     tesseract-ocr \
     tesseract-ocr-eng \
     libpq-dev \
-    libmupdf-dev \
-    zlib1g-dev \
-    gcc \
     curl \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
 
 WORKDIR /app
 
-# Upgrade pip, setuptools, wheel first
-RUN pip install --upgrade pip setuptools wheel
-
-# Copy requirements and install Python dependencies
+# Copy requirements first for better caching
 COPY requirements.txt .
-RUN pip install --no-cache-dir --timeout=1000 --retries=5 -r requirements.txt
+
+# Install Python dependencies with optimizations
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
 COPY . .
