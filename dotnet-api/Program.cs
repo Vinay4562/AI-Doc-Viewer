@@ -7,7 +7,7 @@ using Amazon.S3;
 using Amazon.S3.Model;
 using Npgsql;
 
-// Force redeploy to pick up new configuration
+// Force redeploy to pick up new configuration - v2
 
 var builder = WebApplication.CreateBuilder(args);
 
