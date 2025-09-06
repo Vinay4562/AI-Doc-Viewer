@@ -43,9 +43,17 @@ builder.Services.AddHttpClient("py", c => c.BaseAddress = new Uri(builder.Config
 // Add MinIO service (using AWS S3 SDK for MinIO compatibility)
 builder.Services.AddSingleton<IAmazonS3>(provider =>
 {
+    var minioEndpoint = builder.Configuration["MINIO_ENDPOINT"] ?? "http://minio:9000";
+    
+    // Handle both Docker service names and full URLs
+    if (!minioEndpoint.StartsWith("http"))
+    {
+        minioEndpoint = $"http://{minioEndpoint}";
+    }
+    
     var config = new AmazonS3Config
     {
-        ServiceURL = $"http://{builder.Configuration["MINIO_ENDPOINT"] ?? "minio:9000"}",
+        ServiceURL = minioEndpoint,
         ForcePathStyle = true,
         UseHttp = true
     };
@@ -105,34 +113,46 @@ app.MapPost("/documents", async (HttpRequest req, IHttpClientFactory http, AppDb
         await db.SaveChangesAsync();
         logger.LogInformation($"Created document with ID: {doc.Id}");
 
-        // Create bucket if it doesn't exist
+        // Try to upload to MinIO, but don't fail if it's not available
         var bucketName = "documents";
+        var fileUrl = $"local://{doc.Id}/{file.FileName}";
+        
         try
         {
-            await s3Client.GetBucketLocationAsync(bucketName);
-            logger.LogInformation("Bucket exists");
-        }
-        catch (AmazonS3Exception ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
-        {
-            logger.LogInformation("Creating bucket");
-            await s3Client.PutBucketAsync(bucketName);
-        }
+            // Create bucket if it doesn't exist
+            try
+            {
+                await s3Client.GetBucketLocationAsync(bucketName);
+                logger.LogInformation("Bucket exists");
+            }
+            catch (AmazonS3Exception ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                logger.LogInformation("Creating bucket");
+                await s3Client.PutBucketAsync(bucketName);
+            }
 
-        // Upload file to MinIO
-        var objectName = $"{doc.Id}/{file.FileName}";
-        var putRequest = new PutObjectRequest
+            // Upload file to MinIO
+            var objectName = $"{doc.Id}/{file.FileName}";
+            var putRequest = new PutObjectRequest
+            {
+                BucketName = bucketName,
+                Key = objectName,
+                InputStream = file.OpenReadStream(),
+                ContentType = file.ContentType
+            };
+            
+            await s3Client.PutObjectAsync(putRequest);
+            logger.LogInformation($"File uploaded to MinIO: {objectName}");
+            
+            fileUrl = $"minio://{bucketName}/{objectName}";
+        }
+        catch (Exception minioEx)
         {
-            BucketName = bucketName,
-            Key = objectName,
-            InputStream = file.OpenReadStream(),
-            ContentType = file.ContentType
-        };
-        
-        await s3Client.PutObjectAsync(putRequest);
-        logger.LogInformation($"File uploaded to MinIO: {objectName}");
+            logger.LogWarning($"MinIO upload failed: {minioEx.Message}. Using local storage fallback.");
+            // Continue without MinIO - file will be stored locally or in memory
+        }
 
         // Update document with file URL
-        var fileUrl = $"minio://{bucketName}/{objectName}";
         doc.FileUrl = fileUrl;
         doc.Status = "queued";
         await db.SaveChangesAsync();

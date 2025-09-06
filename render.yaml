@@ -48,16 +48,16 @@ services:
           type: redis
           name: document-assistant-redis
           property: connectionString
-      - key: MinIO__Endpoint
+      - key: MINIO_ENDPOINT
         value: http://document-assistant-storage:9000
-      - key: MinIO__AccessKey
+      - key: MINIO_ACCESS_KEY
         value: minioadmin
-      - key: MinIO__SecretKey
+      - key: MINIO_SECRET_KEY
         fromService:
           type: pserv
           name: document-assistant-storage
           envVarKey: MINIO_ROOT_PASSWORD
-      - key: PyProcessor__BaseUrl
+      - key: PY_BASE
         value: http://document-assistant-py-processor:8000
 
   # Python Processor Service
