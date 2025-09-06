@@ -33,7 +33,7 @@ services:
 
   # .NET API Service
   - type: web
-    name: document-assistant-api
+    name: ai-doc-viewer-api
     env: docker
     dockerfilePath: ./dotnet-api/Dockerfile
     plan: starter
