@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: ai-doc-viewer-processor
+    env: python
+    plan: free
+    buildCommand: cd py-processor && pip install -r requirements.txt
+    startCommand: cd py-processor && python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: GEMINI_API_KEY
+        value: ${GEMINI_API_KEY}
+      - key: DATABASE_URL
+        fromDatabase:
+          name: ai-doc-viewer-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: ai-doc-viewer-redis
+          property: connectionString
+      - key: MINIO_ENDPOINT
+        value: ${MINIO_ENDPOINT}
+      - key: MINIO_ACCESS_KEY
+        value: ${MINIO_ACCESS_KEY}
+      - key: MINIO_SECRET_KEY
+        value: ${MINIO_SECRET_KEY}
+    healthCheckPath: /health

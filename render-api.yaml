@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: ai-doc-viewer-api
+    env: dotnet
+    plan: free
+    buildCommand: cd dotnet-api && dotnet restore && dotnet publish -c Release -o out
+    startCommand: cd dotnet-api/out && dotnet dotnet-api.dll
+    envVars:
+      - key: ASPNETCORE_ENVIRONMENT
+        value: Production
+      - key: ConnectionStrings__DefaultConnection
+        fromDatabase:
+          name: ai-doc-viewer-db
+          property: connectionString
+      - key: MinIO__Endpoint
+        value: ${MINIO_ENDPOINT}
+      - key: MinIO__AccessKey
+        value: ${MINIO_ACCESS_KEY}
+      - key: MinIO__SecretKey
+        value: ${MINIO_SECRET_KEY}
+      - key: PY_BASE
+        value: https://ai-doc-viewer-processor.onrender.com
+    healthCheckPath: /health

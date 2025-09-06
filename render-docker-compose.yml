@@ -1,0 +1,24 @@
+version: '3.8'
+
+services:
+  # Main application service for Render
+  app:
+    build: .
+    ports:
+      - "10000:80"
+    environment:
+      - NODE_ENV=production
+      - ASPNETCORE_ENVIRONMENT=Production
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=${REDIS_URL}
+      - MINIO_ENDPOINT=${MINIO_ENDPOINT}
+      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY}
+      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s

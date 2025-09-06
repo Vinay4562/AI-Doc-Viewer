@@ -39,7 +39,7 @@ function App(){
     setIsProcessing(true);
     
     try {
-      const res = await axios.post("http://localhost:5000/documents", f, { 
+      const res = await axios.post(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/documents`, f, { 
         headers: { "Content-Type": "multipart/form-data" },
         timeout: 120000, // 2 minutes timeout
         onUploadProgress: (progressEvent) => {
@@ -79,7 +79,7 @@ function App(){
     const timestamp = new Date().toISOString();
     
     try {
-      const res = await axios.post("http://localhost:8000/qa", { 
+      const res = await axios.post(`${process.env.REACT_APP_PROCESSOR_URL || 'http://localhost:8000'}/qa`, { 
         query: currentQuery, 
         documentId: currentDocId || null, 
         top_k: 5 

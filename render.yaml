@@ -1,0 +1,67 @@
+services:
+  # Frontend Service
+  - type: web
+    name: ai-doc-viewer-frontend
+    env: node
+    plan: free
+    buildCommand: cd frontend && npm install && npm run build
+    startCommand: cd frontend && npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: REACT_APP_API_URL
+        value: https://ai-doc-viewer-api.onrender.com
+    healthCheckPath: /
+    
+  # .NET API Service
+  - type: web
+    name: ai-doc-viewer-api
+    env: dotnet
+    plan: free
+    buildCommand: cd dotnet-api && dotnet restore && dotnet publish -c Release -o out
+    startCommand: cd dotnet-api/out && dotnet dotnet-api.dll
+    envVars:
+      - key: ASPNETCORE_ENVIRONMENT
+        value: Production
+      - key: ConnectionStrings__DefaultConnection
+        fromDatabase:
+          name: ai-doc-viewer-db
+          property: connectionString
+      - key: MinIO__Endpoint
+        value: ${MINIO_ENDPOINT}
+      - key: MinIO__AccessKey
+        value: ${MINIO_ACCESS_KEY}
+      - key: MinIO__SecretKey
+        value: ${MINIO_SECRET_KEY}
+    healthCheckPath: /health
+    
+  # Python Processor Service
+  - type: web
+    name: ai-doc-viewer-processor
+    env: python
+    plan: free
+    buildCommand: cd py-processor && pip install -r requirements.txt
+    startCommand: cd py-processor && python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: GEMINI_API_KEY
+        value: ${GEMINI_API_KEY}
+      - key: DATABASE_URL
+        fromDatabase:
+          name: ai-doc-viewer-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: ai-doc-viewer-redis
+          property: connectionString
+    healthCheckPath: /health
+
+databases:
+  - name: ai-doc-viewer-db
+    plan: free
+    databaseName: docassistant
+    user: appuser
+
+  - name: ai-doc-viewer-redis
+    plan: free
+    type: redis
