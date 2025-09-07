@@ -209,8 +209,7 @@ async def debug_info():
     
     return debug_info
 
-@app.post("/init-db")
-async def init_database():
+async def _init_database_impl():
     """Initialize database tables for the processor service"""
     try:
         conn = pg_connect()
@@ -265,6 +264,15 @@ async def init_database():
         return {"message": "Database initialized successfully", "tables": ["documents", "document_pages", "chunks"]}
     except Exception as e:
         return {"error": f"Database initialization failed: {str(e)}"}
+
+@app.post("/init-db")
+async def init_database():
+    return await _init_database_impl()
+
+@app.get("/init-db")
+async def init_database_get():
+    # Allow GET for convenience and to avoid Method Not Allowed from browser
+    return await _init_database_impl()
 
 class ExtractIn(BaseModel):
     documentId: int
@@ -417,6 +425,8 @@ async def extract(inp: ExtractIn):
                 (inp.documentId, f"Document {inp.documentId}", inp.fileUrl, "processed"),
             )
         except Exception:
+            # Must rollback before issuing next statement after an error
+            conn.rollback()
             # Fallback to older schema with filename/file_size/upload_date/processed
             cur.execute(
                 """
@@ -514,6 +524,7 @@ async def extract_upload(
                 (documentId, f"Document {documentId}", f"upload://{file.filename}", "processed"),
             )
         except Exception:
+            conn.rollback()
             cur.execute(
                 """
                 INSERT INTO documents (id, filename, file_url, file_size, upload_date, processed)
