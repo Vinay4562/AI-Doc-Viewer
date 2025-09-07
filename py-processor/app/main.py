@@ -139,6 +139,11 @@ async def health_check():
     """Health check endpoint for monitoring"""
     return {"status": "healthy", "service": "py-processor"}
 
+@app.get("/uptime")
+async def uptime_ping():
+    """UptimeRobot ping endpoint - lightweight, no DB/Redis checks"""
+    return {"status": "ok", "timestamp": datetime.now().isoformat(), "service": "py-processor"}
+
 @app.get("/test")
 async def test_endpoint():
     """Test endpoint to verify service functionality"""
