@@ -16,7 +16,11 @@ builder.Services.AddSwaggerGen();
 // Add HTTP client for Python processor
 builder.Services.AddHttpClient("PythonProcessor", client =>
 {
-    client.BaseAddress = new Uri(builder.Configuration["PYTHON_PROCESSOR_URL"] ?? "http://localhost:8000");
+    // Prefer env/config var; fallback to deployed processor URL
+    var baseUrl = builder.Configuration["PYTHON_PROCESSOR_URL"]
+                 ?? Environment.GetEnvironmentVariable("PYTHON_PROCESSOR_URL")
+                 ?? "https://ai-doc-viewer-processor.onrender.com";
+    client.BaseAddress = new Uri(baseUrl);
     client.Timeout = TimeSpan.FromMinutes(5);
 });
 
