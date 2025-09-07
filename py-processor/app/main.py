@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Form, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import os, tempfile, pathlib, io, json
@@ -220,11 +220,20 @@ async def init_database():
         cur.execute("""
             CREATE TABLE IF NOT EXISTS documents (
                 id SERIAL PRIMARY KEY,
-                filename VARCHAR(255) NOT NULL,
-                file_url TEXT NOT NULL,
-                file_size INTEGER,
-                upload_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                processed BOOLEAN DEFAULT FALSE
+                title TEXT,
+                file_url TEXT,
+                status TEXT,
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+        
+        # Create document_pages table
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS document_pages (
+                id SERIAL PRIMARY KEY,
+                document_id INTEGER REFERENCES documents(id) ON DELETE CASCADE,
+                page_no INTEGER NOT NULL,
+                text TEXT NOT NULL
             )
         """)
         
@@ -232,7 +241,7 @@ async def init_database():
         cur.execute("""
             CREATE TABLE IF NOT EXISTS chunks (
                 id SERIAL PRIMARY KEY,
-                document_id INTEGER REFERENCES documents(id),
+                document_id INTEGER REFERENCES documents(id) ON DELETE CASCADE,
                 page_no INTEGER NOT NULL,
                 text TEXT NOT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -244,11 +253,16 @@ async def init_database():
             CREATE INDEX IF NOT EXISTS idx_chunks_text ON chunks USING gin(to_tsvector('english', text))
         """)
         
+        # Create index for document_pages text search
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_document_pages_text ON document_pages USING gin(to_tsvector('english', text))
+        """)
+        
         conn.commit()
         cur.close()
         conn.close()
         
-        return {"message": "Database initialized successfully", "tables": ["documents", "chunks"]}
+        return {"message": "Database initialized successfully", "tables": ["documents", "document_pages", "chunks"]}
     except Exception as e:
         return {"error": f"Database initialization failed: {str(e)}"}
 
@@ -268,9 +282,16 @@ def pg_connect():
 
 def download_from_minio(url: str) -> str:
     """
-    Downloads file from 'minio://bucket/key' or http(s) and returns local path.
+    Downloads file from 'minio://bucket/key', 'file://path', or http(s) and returns local path.
     """
-    if url.startswith("minio://"):
+    if url.startswith("file://"):
+        # Handle local file path
+        file_path = url[7:]  # Remove 'file://' prefix
+        if os.path.exists(file_path):
+            return file_path
+        else:
+            raise ValueError(f"File not found: {file_path}")
+    elif url.startswith("minio://"):
         _, _, path = url.partition("minio://")
         parts = path.split("/", 1)
         if len(parts) != 2:
@@ -367,28 +388,61 @@ async def extract(inp: ExtractIn):
     except Exception as e:
         # If not a PDF, try simple OCR of image
         try:
-            img = Image.open(local)
-            text = pytesseract.image_to_string(img)
-            pages = [{"page_no": 1, "text": text}]
+            if Image is not None and pytesseract is not None:
+                img = Image.open(local)
+                text = pytesseract.image_to_string(img)
+                pages = [{"page_no": 1, "text": text}]
+            else:
+                raise HTTPException(status_code=500, detail="OCR not available")
         except Exception as e2:
             raise HTTPException(status_code=500, detail=f"extraction failed: {e}; {e2}")
 
-    # store pages to DB
+    # First, insert document record
     conn = pg_connect()
     cur = conn.cursor()
-    # insert pages into document_pages
-    if execute_values is None:
-        raise HTTPException(status_code=500, detail="Database utilities not available")
-    execute_values(cur,
-                   "INSERT INTO document_pages(document_id, page_no, text) VALUES %s",
-                   [(inp.documentId, p["page_no"], p["text"]) for p in pages])
-    conn.commit()
-    cur.close()
-    conn.close()
+    
+    try:
+        # Insert document record
+        cur.execute("""
+            INSERT INTO documents (id, title, file_url, status, created_at) 
+            VALUES (%s, %s, %s, %s, NOW())
+            ON CONFLICT (id) DO UPDATE SET 
+                title = EXCLUDED.title,
+                file_url = EXCLUDED.file_url,
+                status = EXCLUDED.status
+        """, (inp.documentId, f"Document {inp.documentId}", inp.fileUrl, "processed"))
+        
+        # Insert pages into document_pages
+        if execute_values is None:
+            raise HTTPException(status_code=500, detail="Database utilities not available")
+        
+        if pages:
+            execute_values(cur,
+                           "INSERT INTO document_pages(document_id, page_no, text) VALUES %s",
+                           [(inp.documentId, p["page_no"], p["text"]) for p in pages])
+        
+        conn.commit()
+        
+        # Enqueue embedding task (for simplicity run inline here)
+        await embed_document(inp.documentId)
+        
+        return {"ok": True, "pages": len(pages), "documentId": inp.documentId}
+        
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=f"Database operation failed: {str(e)}")
+    finally:
+        cur.close()
+        conn.close()
 
-    # Enqueue embedding task (for simplicity run inline here)
-    await embed_document(inp.documentId)
-    return {"ok": True, "pages": len(pages)}
+@app.post("/process/extract-form")
+async def extract_form(
+    documentId: int = Form(...),
+    fileUrl: str = Form(...)
+):
+    """Alternative endpoint that accepts form data directly"""
+    inp = ExtractIn(documentId=documentId, fileUrl=fileUrl)
+    return await extract(inp)
 
 async def embed_document(document_id: int):
     """
@@ -439,21 +493,23 @@ async def embed_document(document_id: int):
 @app.post("/qa")
 async def qa(inp: QaIn):
     """
-    Fixed Q&A with corrected search algorithm.
+    Fixed Q&A with corrected search algorithm and better error handling.
     """
-    try:
-        conn = pg_connect()
-        cur = conn.cursor()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Database connection failed: {str(e)}")
+    conn = None
+    cur = None
     
     try:
+        # Validate input
+        if not inp.query or not inp.query.strip():
+            raise HTTPException(status_code=422, detail="Query cannot be empty")
+        
+        conn = pg_connect()
+        cur = conn.cursor()
+        
         # Simplified search algorithm - use any word longer than 1 character
         query_words = [word.lower().strip() for word in inp.query.split() if len(word.strip()) > 1]
         
         if not query_words:
-            cur.close()
-            conn.close()
             return {
                 "answer": "Please provide a more specific question with meaningful keywords.",
                 "citations": []
@@ -469,7 +525,26 @@ async def qa(inp: QaIn):
         
         where_clause = " OR ".join(search_conditions)
         
+        # Check if chunks table exists and has data
+        cur.execute("SELECT COUNT(*) FROM chunks")
+        chunk_count = cur.fetchone()[0]
+        
+        if chunk_count == 0:
+            return {
+                "answer": "No documents have been processed yet. Please upload and process a document first.",
+                "citations": []
+            }
+        
+        # Build the search query
         if inp.documentId:
+            # Verify document exists
+            cur.execute("SELECT id FROM documents WHERE id = %s", (inp.documentId,))
+            if not cur.fetchone():
+                return {
+                    "answer": f"Document with ID {inp.documentId} not found. Please check the document ID or leave it empty to search all documents.",
+                    "citations": []
+                }
+            
             sql = f"SELECT id, document_id, page_no, text FROM chunks WHERE document_id=%s AND ({where_clause}) LIMIT %s"
             params = [inp.documentId] + params + [inp.top_k]
         else:
@@ -478,8 +553,6 @@ async def qa(inp: QaIn):
         
         cur.execute(sql, params)
         rows = cur.fetchall()
-        cur.close()
-        conn.close()
         
         # Build context with better formatting
         if rows:
@@ -496,7 +569,14 @@ async def qa(inp: QaIn):
             citations = []
         
         return {"answer": answer, "citations": citations}
+        
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is
+        raise
     except Exception as e:
-        cur.close()
-        conn.close()
         raise HTTPException(status_code=500, detail=f"Q&A processing failed: {str(e)}")
+    finally:
+        if cur:
+            cur.close()
+        if conn:
+            conn.close()

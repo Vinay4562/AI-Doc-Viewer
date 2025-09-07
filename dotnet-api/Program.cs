@@ -1,8 +1,8 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using System.Text.Json.Serialization;
-
-// FORCE REDEPLOY - SIMPLIFIED VERSION v3 - NO DATABASE
+using System.Net.Http;
+using System.Text.Json;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -12,6 +12,13 @@ builder.Services.AddControllers().AddJsonOptions(o => {
 });
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+
+// Add HTTP client for Python processor
+builder.Services.AddHttpClient("PythonProcessor", client =>
+{
+    client.BaseAddress = new Uri(builder.Configuration["PYTHON_PROCESSOR_URL"] ?? "http://localhost:8000");
+    client.Timeout = TimeSpan.FromMinutes(5);
+});
 
 // Add CORS
 builder.Services.AddCors(options =>
@@ -67,11 +74,11 @@ app.Use(async (context, next) =>
 app.UseSwagger();
 app.UseSwaggerUI();
 
-app.MapPost("/documents", async (HttpRequest req, ILogger<Program> logger) =>
+app.MapPost("/documents", async (HttpRequest req, ILogger<Program> logger, IHttpClientFactory httpClientFactory) =>
 {
     try
     {
-        logger.LogInformation("=== SIMPLIFIED DOCUMENTS ENDPOINT - NO DATABASE ===");
+        logger.LogInformation("=== DOCUMENTS ENDPOINT - WITH PYTHON PROCESSOR ===");
         
         var form = await req.ReadFormAsync();
         var file = form.Files["file"];
@@ -83,18 +90,74 @@ app.MapPost("/documents", async (HttpRequest req, ILogger<Program> logger) =>
 
         logger.LogInformation($"Processing file: {file.FileName}, Size: {file.Length}");
 
-        // Generate a simple document ID without database
-        var docId = Guid.NewGuid().ToString("N")[..8];
+        // Generate a document ID
+        var docId = new Random().Next(1000, 9999);
         
-        logger.LogInformation($"Created document with ID: {docId}");
+        // Create a temporary file to store the uploaded file
+        var tempPath = Path.GetTempFileName();
+        using (var stream = new FileStream(tempPath, FileMode.Create))
+        {
+            await file.CopyToAsync(stream);
+        }
 
-        return Results.Ok(new { 
-            documentId = docId, 
-            message = "Document uploaded successfully - SIMPLIFIED VERSION",
-            fileName = file.FileName,
-            size = file.Length,
-            timestamp = DateTime.UtcNow
-        });
+        logger.LogInformation($"Created document with ID: {docId}, temp file: {tempPath}");
+
+        // Call Python processor to extract text and process the document
+        var httpClient = httpClientFactory.CreateClient("PythonProcessor");
+        
+        // Create form data for the Python processor
+        using var formData = new MultipartFormDataContent();
+        formData.Add(new StringContent(docId.ToString()), "documentId");
+        formData.Add(new StringContent($"file://{tempPath}"), "fileUrl");
+
+        try
+        {
+            var response = await httpClient.PostAsync("/process/extract-form", formData);
+            if (response.IsSuccessStatusCode)
+            {
+                var result = await response.Content.ReadAsStringAsync();
+                logger.LogInformation($"Python processor response: {result}");
+                
+                // Clean up temp file
+                File.Delete(tempPath);
+                
+                return Results.Ok(new { 
+                    documentId = docId, 
+                    message = "Document uploaded and processed successfully",
+                    fileName = file.FileName,
+                    size = file.Length,
+                    timestamp = DateTime.UtcNow
+                });
+            }
+            else
+            {
+                var errorContent = await response.Content.ReadAsStringAsync();
+                logger.LogError($"Python processor error: {response.StatusCode} - {errorContent}");
+                
+                // Clean up temp file
+                File.Delete(tempPath);
+                
+                return Results.Problem(
+                    detail: $"Document processing failed: {errorContent}",
+                    statusCode: 500,
+                    title: "Processing Error"
+                );
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Error calling Python processor");
+            
+            // Clean up temp file
+            if (File.Exists(tempPath))
+                File.Delete(tempPath);
+                
+            return Results.Problem(
+                detail: $"Failed to process document: {ex.Message}",
+                statusCode: 500,
+                title: "Processing Error"
+            );
+        }
     }
     catch (Exception ex)
     {
