@@ -58,6 +58,16 @@ var app = builder.Build();
 // Enable CORS first
 app.UseCors("AllowFrontend");
 
+// Warmup: ping processor /health at startup (best-effort)
+try
+{
+    var factory = app.Services.GetRequiredService<IHttpClientFactory>();
+    var warmClient = factory.CreateClient("PythonProcessor");
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+    _ = warmClient.GetAsync("/health", cts.Token);
+}
+catch { }
+
 // Add explicit CORS headers for preflight requests
 app.Use(async (context, next) =>
 {
@@ -107,9 +117,24 @@ app.MapPost("/documents", async (HttpRequest req, ILogger<Program> logger, IHttp
         fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(file.ContentType ?? "application/octet-stream");
         formData.Add(fileContent, "file", file.FileName);
 
+        async Task<HttpResponseMessage> PostWithOneRetry()
+        {
+            try
+            {
+                return await httpClient.PostAsync("/process/extract-upload", formData);
+            }
+            catch
+            {
+                // warmup ping + small delay, then retry once
+                try { await httpClient.GetAsync("/health"); } catch { }
+                await Task.Delay(1200);
+                return await httpClient.PostAsync("/process/extract-upload", formData);
+            }
+        }
+
         try
         {
-            var response = await httpClient.PostAsync("/process/extract-upload", formData);
+            var response = await PostWithOneRetry();
             if (response.IsSuccessStatusCode)
             {
                 var result = await response.Content.ReadAsStringAsync();
