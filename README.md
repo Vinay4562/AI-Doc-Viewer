@@ -101,15 +101,15 @@ docker-compose up --build
 ### **Environment Variables**
 ```env
 # Database
-DATABASE_URL=postgresql://appuser:changeme@postgres:5432/docassistant
+DATABASE_URL=
 
 # MinIO Storage
 MINIO_ENDPOINT=minio:9000
-MINIO_ACCESS_KEY=minioadmin
-MINIO_SECRET_KEY=minioadmin
+MINIO_ACCESS_KEY=
+MINIO_SECRET_KEY=
 
 # AI Services
-GEMINI_API_KEY=your_gemini_api_key_here
+GEMINI_API_KEY=
 ```
 
 ### **Production Deployment**
