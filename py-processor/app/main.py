@@ -444,6 +444,81 @@ async def extract_form(
     inp = ExtractIn(documentId=documentId, fileUrl=fileUrl)
     return await extract(inp)
 
+@app.post("/process/extract-upload")
+async def extract_upload(
+    documentId: int = Form(...),
+    file: UploadFile = File(...)
+):
+    """Accept a file upload directly, extract text, and store chunks."""
+    # Save uploaded file to a temporary location
+    try:
+        suffix = pathlib.Path(file.filename or "uploaded.bin").suffix
+        local_path = tempfile.mktemp(suffix=suffix)
+        with open(local_path, "wb") as out:
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                out.write(chunk)
+    finally:
+        await file.close()
+
+    # Reuse existing extract and embed flow using local file path
+    pages = []
+    try:
+        pages = extract_text_from_pdf(local_path)
+    except Exception as e:
+        try:
+            if Image is not None and pytesseract is not None:
+                img = Image.open(local_path)
+                text = pytesseract.image_to_string(img)
+                pages = [{"page_no": 1, "text": text}]
+            else:
+                raise HTTPException(status_code=500, detail="OCR not available")
+        except Exception as e2:
+            raise HTTPException(status_code=500, detail=f"extraction failed: {e}; {e2}")
+
+    conn = pg_connect()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            INSERT INTO documents (id, title, file_url, status, created_at)
+            VALUES (%s, %s, %s, %s, NOW())
+            ON CONFLICT (id) DO UPDATE SET
+                title = EXCLUDED.title,
+                file_url = EXCLUDED.file_url,
+                status = EXCLUDED.status
+            """,
+            (documentId, f"Document {documentId}", f"upload://{file.filename}", "processed"),
+        )
+
+        if execute_values is None:
+            raise HTTPException(status_code=500, detail="Database utilities not available")
+
+        if pages:
+            execute_values(
+                cur,
+                "INSERT INTO document_pages(document_id, page_no, text) VALUES %s",
+                [(documentId, p["page_no"], p["text"]) for p in pages],
+            )
+
+        conn.commit()
+
+        await embed_document(documentId)
+
+        return {"ok": True, "pages": len(pages), "documentId": documentId}
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=f"Database operation failed: {str(e)}")
+    finally:
+        cur.close()
+        conn.close()
+        try:
+            os.remove(local_path)
+        except Exception:
+            pass
+
 async def embed_document(document_id: int):
     """
     Optimized document embedding with better chunking and batch processing.

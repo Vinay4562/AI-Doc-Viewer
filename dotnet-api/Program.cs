@@ -93,33 +93,23 @@ app.MapPost("/documents", async (HttpRequest req, ILogger<Program> logger, IHttp
         // Generate a document ID
         var docId = new Random().Next(1000, 9999);
         
-        // Create a temporary file to store the uploaded file
-        var tempPath = Path.GetTempFileName();
-        using (var stream = new FileStream(tempPath, FileMode.Create))
-        {
-            await file.CopyToAsync(stream);
-        }
-
-        logger.LogInformation($"Created document with ID: {docId}, temp file: {tempPath}");
-
-        // Call Python processor to extract text and process the document
+        // Call Python processor to extract text and process the document (send file bytes)
         var httpClient = httpClientFactory.CreateClient("PythonProcessor");
         
         // Create form data for the Python processor
         using var formData = new MultipartFormDataContent();
         formData.Add(new StringContent(docId.ToString()), "documentId");
-        formData.Add(new StringContent($"file://{tempPath}"), "fileUrl");
+        var fileContent = new StreamContent(file.OpenReadStream());
+        fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(file.ContentType ?? "application/octet-stream");
+        formData.Add(fileContent, "file", file.FileName);
 
         try
         {
-            var response = await httpClient.PostAsync("/process/extract-form", formData);
+            var response = await httpClient.PostAsync("/process/extract-upload", formData);
             if (response.IsSuccessStatusCode)
             {
                 var result = await response.Content.ReadAsStringAsync();
                 logger.LogInformation($"Python processor response: {result}");
-                
-                // Clean up temp file
-                File.Delete(tempPath);
                 
                 return Results.Ok(new { 
                     documentId = docId, 
@@ -134,9 +124,6 @@ app.MapPost("/documents", async (HttpRequest req, ILogger<Program> logger, IHttp
                 var errorContent = await response.Content.ReadAsStringAsync();
                 logger.LogError($"Python processor error: {response.StatusCode} - {errorContent}");
                 
-                // Clean up temp file
-                File.Delete(tempPath);
-                
                 return Results.Problem(
                     detail: $"Document processing failed: {errorContent}",
                     statusCode: 500,
@@ -147,10 +134,6 @@ app.MapPost("/documents", async (HttpRequest req, ILogger<Program> logger, IHttp
         catch (Exception ex)
         {
             logger.LogError(ex, "Error calling Python processor");
-            
-            // Clean up temp file
-            if (File.Exists(tempPath))
-                File.Delete(tempPath);
                 
             return Results.Problem(
                 detail: $"Failed to process document: {ex.Message}",
