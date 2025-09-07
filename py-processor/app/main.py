@@ -402,15 +402,34 @@ async def extract(inp: ExtractIn):
     cur = conn.cursor()
     
     try:
-        # Insert document record
-        cur.execute("""
-            INSERT INTO documents (id, title, file_url, status, created_at) 
-            VALUES (%s, %s, %s, %s, NOW())
-            ON CONFLICT (id) DO UPDATE SET 
-                title = EXCLUDED.title,
-                file_url = EXCLUDED.file_url,
-                status = EXCLUDED.status
-        """, (inp.documentId, f"Document {inp.documentId}", inp.fileUrl, "processed"))
+        # Insert/Upsert document record (compatible with multiple schemas)
+        try:
+            # Try new schema with title/status/created_at
+            cur.execute(
+                """
+                INSERT INTO documents (id, title, file_url, status, created_at)
+                VALUES (%s, %s, %s, %s, NOW())
+                ON CONFLICT (id) DO UPDATE SET
+                    title = EXCLUDED.title,
+                    file_url = EXCLUDED.file_url,
+                    status = EXCLUDED.status
+                """,
+                (inp.documentId, f"Document {inp.documentId}", inp.fileUrl, "processed"),
+            )
+        except Exception:
+            # Fallback to older schema with filename/file_size/upload_date/processed
+            cur.execute(
+                """
+                INSERT INTO documents (id, filename, file_url, file_size, upload_date, processed)
+                VALUES (%s, %s, %s, %s, NOW(), %s)
+                ON CONFLICT (id) DO UPDATE SET
+                    filename = EXCLUDED.filename,
+                    file_url = EXCLUDED.file_url,
+                    file_size = EXCLUDED.file_size,
+                    processed = EXCLUDED.processed
+                """,
+                (inp.documentId, f"Document {inp.documentId}", inp.fileUrl, 0, True),
+            )
         
         # Insert pages into document_pages
         if execute_values is None:
@@ -481,17 +500,32 @@ async def extract_upload(
     conn = pg_connect()
     cur = conn.cursor()
     try:
-        cur.execute(
-            """
-            INSERT INTO documents (id, title, file_url, status, created_at)
-            VALUES (%s, %s, %s, %s, NOW())
-            ON CONFLICT (id) DO UPDATE SET
-                title = EXCLUDED.title,
-                file_url = EXCLUDED.file_url,
-                status = EXCLUDED.status
-            """,
-            (documentId, f"Document {documentId}", f"upload://{file.filename}", "processed"),
-        )
+        # Insert/Upsert document record (compatible with multiple schemas)
+        try:
+            cur.execute(
+                """
+                INSERT INTO documents (id, title, file_url, status, created_at)
+                VALUES (%s, %s, %s, %s, NOW())
+                ON CONFLICT (id) DO UPDATE SET
+                    title = EXCLUDED.title,
+                    file_url = EXCLUDED.file_url,
+                    status = EXCLUDED.status
+                """,
+                (documentId, f"Document {documentId}", f"upload://{file.filename}", "processed"),
+            )
+        except Exception:
+            cur.execute(
+                """
+                INSERT INTO documents (id, filename, file_url, file_size, upload_date, processed)
+                VALUES (%s, %s, %s, %s, NOW(), %s)
+                ON CONFLICT (id) DO UPDATE SET
+                    filename = EXCLUDED.filename,
+                    file_url = EXCLUDED.file_url,
+                    file_size = EXCLUDED.file_size,
+                    processed = EXCLUDED.processed
+                """,
+                (documentId, f"Document {documentId}", f"upload://{file.filename}", 0, True),
+            )
 
         if execute_values is None:
             raise HTTPException(status_code=500, detail="Database utilities not available")
