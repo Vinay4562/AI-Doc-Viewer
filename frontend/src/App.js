@@ -17,11 +17,6 @@ function App(){
   const [numPages, setNumPages] = useState(null);
   const [isFullScreen, setIsFullScreen] = useState(false);
 
-  // Service URLs and app version for links/labels
-  const apiBase = process.env.REACT_APP_API_URL || 'https://ai-doc-viewer-api.onrender.com';
-  const processorBase = process.env.REACT_APP_PROCESSOR_URL || 'https://ai-doc-viewer-processor.onrender.com';
-  const appVersion = process.env.REACT_APP_APP_VERSION || 'v1.0.0';
-
   // Load history from localStorage on component mount
   useEffect(() => {
     const savedHistory = localStorage.getItem('chatHistory');
@@ -369,49 +364,6 @@ function App(){
           </div>
         )}
       </div>
-
-      {/* Informational Sections */}
-      <section id="features" style={{ padding: '40px 0', borderTop: '1px solid #eee' }}>
-        <div className="container">
-          <h2 className="section-title">✨ Features</h2>
-          <ul>
-            <li>Smart PDF upload with progress</li>
-            <li>AI question answering with citations</li>
-            <li>Full-screen PDF preview</li>
-            <li>Chat history and quick actions</li>
-          </ul>
-        </div>
-      </section>
-
-      <section id="about" style={{ padding: '40px 0', borderTop: '1px solid #eee' }}>
-        <div className="container">
-          <h2 className="section-title">ℹ️ About</h2>
-          <p>
-            AI Document Assistant helps you upload PDFs, extract content, and ask questions with helpful, context-aware answers.
-            Current version: {appVersion}
-          </p>
-          <div style={{ marginTop: 12 }}>
-            <strong>Service Health:</strong>
-            <ul>
-              <li><a href={`${apiBase}/health`} target="_blank" rel="noreferrer">.NET API Health</a></li>
-              <li><a href={`${processorBase}/health`} target="_blank" rel="noreferrer">Processor Health</a></li>
-              <li><a href={`${processorBase}/debug`} target="_blank" rel="noreferrer">Processor Debug</a></li>
-            </ul>
-          </div>
-        </div>
-      </section>
-
-      <section id="contact" style={{ padding: '40px 0', borderTop: '1px solid #eee' }}>
-        <div className="container">
-          <h2 className="section-title">📬 Contact</h2>
-          <p>
-            For support or feedback, open an issue on the repository or reach out to the maintainer.
-          </p>
-          <ul>
-            <li><a href="https://github.com/Vinay4562/AI-Doc-Viewer" target="_blank" rel="noreferrer">GitHub Repository</a></li>
-          </ul>
-        </div>
-      </section>
 
       {/* PDF Preview Modal */}
       {showPreview && (
